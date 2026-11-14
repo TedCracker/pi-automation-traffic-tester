@@ -1,0 +1,46 @@
+diff -ru a/Makefile b/Makefile
+--- a/Makefile	2026-11-03 14:23:45.280906386 -0600
++++ b/Makefile	2026-11-03 14:31:29.261073916 -0600
+@@ -36,6 +36,13 @@
+ 	-I $(src)/include \
+ 	-DDEBUG
+ 
++# cfg80211 API detection (see cfg80211.c): newer cfg80211 has .set_monitor_channel(wiphy, netdev, chandef)
++NEXMON_CFG80211_H := $(srctree)/include/net/cfg80211.h
++NEXMON_SETCHAN_NDEV := $(shell grep -A2 'int.*set_monitor_channel' $(NEXMON_CFG80211_H) 2>/dev/null | grep -c 'struct net_device')
++ifneq ($(NEXMON_SETCHAN_NDEV),0)
++ccflags-y += -DNEXMON_SETCHAN_3ARG
++endif
++
+ obj-$(CONFIG_BRCMFMAC) += brcmfmac.o
+ brcmfmac-objs += \
+ 		cfg80211.o \
+diff -ru a/cfg80211.c b/cfg80211.c
+--- a/cfg80211.c	2026-11-03 14:23:45.281050988 -0600
++++ b/cfg80211.c	2026-11-03 14:31:01.773198182 -0600
+@@ -765,7 +765,9 @@
+ }
+ 
+ #ifdef NEXMON_MON_IF
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(6,13,0)
++/* The signature of .set_monitor_channel depends on the kernel's cfg80211 (Raspberry Pi OS kernels differ although they share a version number):
++ * the Makefile detects it from include/net/cfg80211.h and defines NEXMON_SETCHAN_3ARG. */
++#ifndef NEXMON_SETCHAN_3ARG
+ static s32
+ brcmf_cfg80211_nexmon_set_channel(struct wiphy *wiphy,struct cfg80211_chan_def *chandef) {
+ #else
+diff -ru a/include/brcm_hw_ids.h b/include/brcm_hw_ids.h
+--- a/include/brcm_hw_ids.h	2026-11-03 14:23:45.281639132 -0600
++++ b/include/brcm_hw_ids.h	2026-11-03 14:31:01.773382913 -0600
+@@ -54,6 +54,11 @@
+ #define CY_CC_43012_CHIP_ID		43012
+ #define CY_CC_43752_CHIP_ID		43752
+ 
++/* Raspberry Pi OS 6.12 headers do not define this SDIO ID (the ID is unrelated to the Pi's CYW43455 chip). */
++#ifndef SDIO_DEVICE_ID_BROADCOM_CYPRESS_43752
++#define SDIO_DEVICE_ID_BROADCOM_CYPRESS_43752	0xaae8
++#endif
++
+ /* USB Device IDs */
+ #define BRCM_USB_43143_DEVICE_ID	0xbd1e
+ #define BRCM_USB_43235_LINKSYS_DEVICE_ID	0x0039

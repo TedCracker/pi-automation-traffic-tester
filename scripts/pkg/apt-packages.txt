@@ -1,0 +1,1 @@
+python3 python3-venv python3-pip chrony iproute2 socat ca-certificates tshark tcpdump iw ethtool kmod git polkitd aircrack-ng libcap2-bin network-manager dnsmasq-base avahi-daemon

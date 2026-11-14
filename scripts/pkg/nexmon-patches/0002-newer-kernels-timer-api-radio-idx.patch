@@ -1,0 +1,74 @@
+diff -ruN a/Makefile b/Makefile
+--- a/Makefile	2026-11-03 14:31:29.261073916 -0600
++++ b/Makefile	2026-11-03 17:29:14.627142563 -0600
+@@ -39,6 +39,15 @@
+ # cfg80211 API detection (see cfg80211.c): newer cfg80211 has .set_monitor_channel(wiphy, netdev, chandef)
+ NEXMON_CFG80211_H := $(srctree)/include/net/cfg80211.h
+ NEXMON_SETCHAN_NDEV := $(shell grep -A2 'int.*set_monitor_channel' $(NEXMON_CFG80211_H) 2>/dev/null | grep -c 'struct net_device')
++NEXMON_RADIO_IDX_N := $(shell grep -A1 'set_wiphy_params' $(NEXMON_CFG80211_H) 2>/dev/null | grep -c 'radio_idx')
++NEXMON_TXP_LINK_N := $(shell grep -A2 'get_tx_power' $(NEXMON_CFG80211_H) 2>/dev/null | grep -c 'link_id')
++ifneq ($(NEXMON_TXP_LINK_N),0)
++ccflags-y += -DNEXMON_TXP_LINK_ID
++endif
++ifneq ($(NEXMON_RADIO_IDX_N),0)
++ccflags-y += -DNEXMON_RADIO_IDX
++endif
++ccflags-y += -include $(src)/include/nexmon_compat.h
+ ifneq ($(NEXMON_SETCHAN_NDEV),0)
+ ccflags-y += -DNEXMON_SETCHAN_3ARG
+ endif
+diff -ruN a/cfg80211.c b/cfg80211.c
+--- a/cfg80211.c	2026-11-03 14:31:01.773198182 -0600
++++ b/cfg80211.c	2026-11-03 17:29:14.625979638 -0600
+@@ -1319,7 +1319,7 @@
+ 	return err;
+ }
+ 
+-static s32 brcmf_cfg80211_set_wiphy_params(struct wiphy *wiphy, u32 changed)
++static s32 brcmf_cfg80211_set_wiphy_params(struct wiphy *wiphy, NX_RIDX u32 changed)
+ {
+ 	struct brcmf_cfg80211_info *cfg = wiphy_to_cfg(wiphy);
+ 	struct net_device *ndev = cfg_to_ndev(cfg);
+@@ -2326,7 +2326,7 @@
+ }
+ 
+ static s32
+-brcmf_cfg80211_set_tx_power(struct wiphy *wiphy, struct wireless_dev *wdev,
++brcmf_cfg80211_set_tx_power(struct wiphy *wiphy, struct wireless_dev *wdev, NX_RIDX
+ 			    enum nl80211_tx_power_setting type, s32 mbm)
+ {
+ 	struct brcmf_cfg80211_info *cfg = wiphy_to_cfg(wiphy);
+@@ -2377,7 +2377,7 @@
+ }
+ 
+ static s32
+-brcmf_cfg80211_get_tx_power(struct wiphy *wiphy, struct wireless_dev *wdev,
++brcmf_cfg80211_get_tx_power(struct wiphy *wiphy, struct wireless_dev *wdev, NX_RIDX NX_TXP_LINK
+ 			    s32 *dbm)
+ {
+ 	struct brcmf_cfg80211_info *cfg = wiphy_to_cfg(wiphy);
+diff -ruN a/include/nexmon_compat.h b/include/nexmon_compat.h
+--- a/include/nexmon_compat.h	1969-12-31 18:00:00.000000000 -0600
++++ b/include/nexmon_compat.h	2026-11-03 17:29:14.626376888 -0600
+@@ -0,0 +1,21 @@
++/* Compatibility with newer kernels (Raspberry Pi OS Trixie 6.16+/6.18): renamed timer API, extra radio_idx argument of three cfg80211 ops. */
++#ifndef NEXMON_COMPAT_H
++#define NEXMON_COMPAT_H
++#include <linux/version.h>
++#include <linux/timer.h>
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 16, 0)
++#define from_timer(var, callback_timer, timer_fieldname) timer_container_of(var, callback_timer, timer_fieldname)
++#define del_timer_sync timer_delete_sync
++#define del_timer timer_delete
++#endif
++#ifdef NEXMON_RADIO_IDX
++#define NX_RIDX int radio_idx,
++#else
++#define NX_RIDX
++#endif
++#ifdef NEXMON_TXP_LINK_ID
++#define NX_TXP_LINK unsigned int link_id,
++#else
++#define NX_TXP_LINK
++#endif
++#endif

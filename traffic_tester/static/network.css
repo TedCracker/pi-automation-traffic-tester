@@ -1,0 +1,39 @@
+/* Settings -> Network (phone first: one column, 44 px tap targets, 16 px inputs) */
+.net-through{margin:2px 0 12px}
+.net-sec{border:1px solid var(--line);border-radius:12px;background:var(--panel2);padding:14px;margin-top:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.net-sec h3{margin:0}
+.net-sec p{margin:0}
+.net-up{color:var(--pass);font-weight:600}
+.net-down{color:var(--muted)}
+.net-grid{gap:10px}
+.net-seg{display:flex;flex-wrap:wrap;gap:8px}
+.net-seg .net-opt{flex:1 1 150px}
+.net-seg.sm .net-opt{flex:1 1 130px}
+.net-opt{position:relative;display:block;min-width:0}
+.net-opt input[type=radio]{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer;-webkit-appearance:none;appearance:none}
+.net-opt input[type=radio]::before{content:none}
+.net-opt span{display:flex;align-items:center;justify-content:center;text-align:center;min-height:44px;padding:6px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);font-weight:600;overflow-wrap:anywhere}
+.net-opt input:checked+span{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.net-opt input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
+.net-pw{display:flex;gap:8px;align-items:stretch}
+.net-pw input{flex:1;min-width:0}
+.net-port{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:12px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.net-port-h{gap:6px 12px;flex-wrap:wrap}
+.net-live{font-size:.88rem;color:var(--muted)}
+.chip.you{background:var(--pass-soft);color:var(--pass)}
+.net-scan{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto}
+.net-ap{display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text);font:inherit;text-align:left;cursor:pointer}
+.net-ap.on{border-color:var(--accent);background:var(--accent-soft)}
+.net-ap small{color:var(--muted);white-space:nowrap}
+.net-help summary{cursor:pointer}
+.net-plan ul{margin:6px 0 10px 18px;padding:0}
+.net-plan li{margin:4px 0}
+.net-warn{color:var(--fail);font-weight:600}
+.net-note{color:var(--warn)}
+.net-banner{position:sticky;top:0;z-index:60;background:var(--panel);border-bottom:3px solid var(--warn);box-shadow:var(--shadow);padding:calc(10px + env(safe-area-inset-top)) 14px 10px}
+.net-banner[hidden]{display:none}
+.net-banner-in{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;max-width:1100px;margin:0 auto}
+.net-banner-in b{display:block}
+.net-banner-in small,.net-banner-in ul{display:block;margin:4px 0 0;padding-left:0;list-style:none;color:var(--muted);font-size:.85rem}
+.net-banner-btn{display:flex;gap:8px}
+@media(max-width:620px){.net-banner-btn{width:100%}.net-banner-btn .btn{flex:1}.net-sec .row .btn.primary{width:100%}}

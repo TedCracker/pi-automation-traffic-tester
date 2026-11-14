@@ -1,0 +1,23 @@
+/* Settings -> This Pi / Pis on this network / Time source (phone first: one column, 44 px targets; colours come from the theme variables, so light and dark both work) */
+.peer{border:1px solid var(--line);border-radius:12px;background:var(--panel2);padding:12px 14px;margin-bottom:10px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.peer b{overflow-wrap:anywhere}
+.peer small{overflow-wrap:anywhere}
+.peer-tags{display:flex;flex-wrap:wrap;gap:6px}
+.peer-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.peer-acts .btn{min-height:44px;display:inline-flex;align-items:center;text-decoration:none;color:inherit}
+.peer-acts .btn.primary{color:var(--accent-ink)}
+.peer-err{color:var(--warn)}
+.peer-pw{margin-top:4px}
+.peer-pw .btn{min-height:44px}
+#setThisPi .kv dd,#setPeers .kv dd,#setClock .kv dd{overflow-wrap:anywhere;min-width:0}
+#setThisPi code,#setPeers code{overflow-wrap:anywhere}
+#setThisPi input,#setPeers input,#setClock select{min-height:44px}
+#setThisPi .row .btn,#setPeers .row>.btn:not(.small),#setClock .row .btn{min-height:44px}
+#peersRefresh{min-height:44px}
+#netCard:empty{display:none}
+@media(max-width:620px){
+  .peer-acts .btn{flex:1 1 calc(50% - 8px);justify-content:center}
+  .peer-pw .f{flex:1 1 100%}
+  #setPeers .row .f,#setThisPi .row .f,#setClock .row .f{flex:1 1 100%;min-width:0!important}
+  #setPeers .row>.btn:not(.small),#setThisPi .row>.btn,#setClock .row>.btn{width:100%}
+}

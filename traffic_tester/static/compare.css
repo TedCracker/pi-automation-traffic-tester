@@ -1,0 +1,68 @@
+/* Compare runs, baseline, job info (compare.js, job.js, results.js). Loaded on demand by ensureCompareCss(). */
+.cmp-top h2{font-size:1.15rem}
+.cmp-runs{display:flex;flex-direction:column;gap:10px;padding:12px 16px}
+.cmp-run{display:flex;gap:10px;align-items:flex-start}
+.cmp-run small{display:block;margin-top:2px}
+.cmp-chip{flex:none;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-weight:700;font-size:.85rem;background:var(--panel2);white-space:nowrap}
+.cmp-chip i,.cmp-dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--c)}
+.cmp-dot{margin-right:6px}
+.cmp-say{font-size:1.02rem;line-height:1.45;margin:4px 2px 14px;padding:12px 14px;border-left:4px solid var(--accent);background:var(--accent-soft);border-radius:8px}
+.cmp-tbl{padding:8px 10px}
+.cmp-tbl table{width:100%}
+.cmp-tbl td,.cmp-tbl th{text-align:right;font-variant-numeric:tabular-nums}
+.cmp-tbl td:first-child,.cmp-tbl th:first-child{text-align:left}
+.cmp-tbl th:first-child{text-transform:uppercase;font-size:.72rem;letter-spacing:.04em}
+.cmp-chg small,.cmp-sub small{display:block;font-size:.72rem;color:var(--muted);font-weight:500}
+.cmp-sub{font-size:.8rem;margin-top:1px}
+.chg-better{color:var(--pass)}.chg-worse{color:var(--fail)}.chg-plain{color:var(--text)}
+.cmp-pass{color:var(--pass);font-weight:700}.cmp-fail{color:var(--fail);font-weight:700}
+.cmp-note{font-size:.85rem;margin:8px 0 0}
+.cmp-setup p{margin:4px 0 0}
+.cmp-acts .tools{justify-content:flex-end}
+
+/* results list: select mode, job line, baseline */
+.selbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;padding:8px 12px;border:1px solid var(--accent);border-radius:10px;background:var(--accent-soft)}
+.selbar .grow{flex:1;min-width:140px}
+.selbar .warn{color:var(--fail);font-weight:600}
+.runlist td.pick,.runlist th.pick{width:34px;text-align:center;padding-right:0}
+.runlist td.pick input{width:20px;height:20px;accent-color:var(--accent)}
+.runlist small.jobl,.runlist small.vsb{display:block}
+.vsb .b-better{color:var(--pass)}.vsb .b-worse{color:var(--fail)}
+.tag.base{background:var(--accent-soft);color:var(--accent);text-transform:none}
+
+/* result: vs baseline under the verdict, job block */
+.vsbase{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:-6px 0 14px;padding:8px 14px;border:1px solid var(--line);border-radius:10px;background:var(--panel);font-size:.95rem}
+.vsbase b.b-better{color:var(--pass)}.vsbase b.b-worse{color:var(--fail)}
+.vsbase .grow{flex:1}
+.jobcard{padding:10px 16px}
+.jobcard.empty-job{padding:6px 16px;background:none;border-style:dashed;box-shadow:none}
+.jobkv{display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;margin-top:6px;font-size:.95rem}
+.jobkv span{color:var(--muted)}
+.jobkv b{font-weight:600;overflow-wrap:anywhere}
+.jobform{display:flex;flex-direction:column;gap:10px}
+.jobform textarea{width:100%;resize:vertical;font:inherit}
+
+/* the job line of the Start bar */
+.jobline{display:flex;gap:8px;align-items:center;width:100%;min-height:36px;padding:4px 10px;border:1px dashed var(--line);border-radius:9px;background:none;color:var(--text);font:inherit;font-size:.9rem;text-align:left;cursor:pointer}
+.jobline .jl-k{color:var(--muted);font-weight:600;flex:none}
+.jobline .jl-v{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jobline .jl-e{flex:none;color:var(--accent)}
+@media (pointer:coarse),(max-width:820px){
+  .jobline{min-height:44px}
+  .runlist td.pick input{width:24px;height:24px}
+  .cmp-acts .tools .btn{flex:1}
+}
+@media (max-width:700px){
+  .selbar .grow{flex:1 0 100%}
+  .selbar .btn{flex:1}
+}
+.cmp-tbl .scroll>table.two{min-width:0}
+.cmp-tbl td:first-child small{white-space:nowrap}
+@media (max-width:700px){
+  .cmp-tbl{padding:6px 4px}
+  .cmp-tbl td,.cmp-tbl th{padding-left:5px;padding-right:5px}
+  .cmp-tbl table.two td:first-child{white-space:normal;font-size:.92rem}
+  .cmp-say{font-size:.98rem}
+  .vsbase .grow{flex:1 0 100%}
+  .vsbase .btn{flex:1}
+}

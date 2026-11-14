@@ -1,0 +1,20 @@
+/* Settings -> Software update (phone first: one column, big buttons) */
+.upd-opts{margin-top:14px}
+.upd-opt{border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--panel2);display:flex;flex-direction:column;gap:8px;min-width:0}
+.upd-opt h3{margin:0}
+.upd-opt p{margin:0}
+.upd-opt .btn{align-self:flex-start;min-height:44px}
+.upd-card{border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:10px 12px;display:flex;flex-direction:column;gap:8px;margin-top:4px;min-width:0}
+.upd-notes{font-size:.88rem;white-space:normal;overflow-wrap:anywhere;border-left:3px solid var(--accent);padding-left:10px;max-height:200px;overflow:auto}
+.upd-why{margin:0;font-size:.85rem;color:var(--warn)}
+.upd-prog .bar{margin:4px 0}
+.upd-roll{margin-top:14px}
+.upd-daily{margin-top:12px;min-height:44px}
+.upd-partner{margin-top:14px}
+.upd-partner .row{margin-top:8px}
+.updot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--warn);margin-left:6px;vertical-align:middle}
+#updStatus:empty{display:none}
+@media(max-width:620px){.upd-opt .btn,.upd-card .btn{width:100%}.upd-card .row{flex-direction:column;align-items:stretch}}
+.upd-other select,.upd-other input{min-height:44px}
+.upd-other .row .f{min-width:0}
+@media(max-width:620px){.upd-other .row .f{flex:1 1 100%}.upd-other .btn{width:100%}}

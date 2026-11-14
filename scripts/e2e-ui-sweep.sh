@@ -1,0 +1,6 @@
+#!/bin/bash
+# Web UI + API sweep of both Pis (real browser). Output -> docs/e2e-ui-sweep-last.log
+exec 9>/tmp/tt-test.lock; flock 9
+cd "$(dirname "$0")/.." || exit 1
+python3 scripts/e2e_ui_sweep.py 2>&1 | tee docs/e2e-ui-sweep-last.log
+exit ${PIPESTATUS[0]}

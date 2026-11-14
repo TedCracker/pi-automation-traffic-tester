@@ -1,0 +1,2 @@
+"""Pi Automation Traffic Tester."""
+__version__ = "1.5.2"
