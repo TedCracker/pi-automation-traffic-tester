@@ -4,7 +4,7 @@
   (b) every visible interactive element is >= 44 x 44 CSS px on phones/tablets (button, a[href], input, select, textarea, summary, [role=tab|button], label.chk, [tabindex], clickable table rows)
   (c) input / select / textarea computed font-size >= 16 px on phones/tablets (iOS does not zoom)
   (d) the fixed bottom tab bar is visible, has the 6 tabs and does not cover the sticky action bar or the end of the page
-  (e) dialogs (confirm, prompt, Ask Claude off/on, "More" menu, toast) and the generator / sniffer / profile editors fit the screen with their buttons reachable
+  (e) dialogs (confirm, prompt, "More" menu, toast) and the generator / sniffer / profile editors fit the screen with their buttons reachable
 plus: manifest + icons + meta, desktop look unchanged at 1280 px, charts re-fit after a rotation.
 Run via scripts/e2e-mobile-sweep.sh (system python3 with playwright). Prints 'CHECK name | pass/FAIL | evidence' and 'N/M checks passed'.
 Screenshots: docs/screenshots/mobile-<tab>-<WxH>[-dark].png"""
@@ -401,26 +401,6 @@ try:
                 pg.click("#stopBtn"); pg.wait_for_selector("#modal .box"); time.sleep(0.3)
                 dlg("Stop-test confirm dialog (over the fixed Stop bar)", "#modal .box"); pg.click("#mNo"); time.sleep(0.2)
                 pg.click("#stopBtn"); pg.wait_for_selector("#mYes"); pg.click("#mYes"); wait_run(rid2); time.sleep(0.5)
-                # Ask Claude: off, then on (mocked) with a chat, an action and a change card
-                pg.click("#askBtn"); pg.wait_for_selector("#askOff, #askIn"); time.sleep(0.4)
-                dlg("Ask Claude panel (Claude Code off: Log in)", "#askPanel", expect_full=(W <= 700 or (H <= 480 and W <= 1000)))
-                if shots: pg.screenshot(path=os.path.join(SHOTS, f"mobile-askclaude-off-{cname.replace('-dark', '')}{'-dark' if theme == 'dark' else ''}.png"))
-                pg.click("#askClose"); time.sleep(0.2)
-                check(f"{tag}(e) Ask Claude closes with one tap and the page is usable again", pg.locator("#askPanel").is_hidden() and pg.evaluate("document.documentElement.scrollWidth <= innerWidth") and pg.evaluate("getComputedStyle(document.body).overflow") != "hidden")
-                st = {"enabled": True, "installed": True, "password_set": True, "can_login": True, "message": "Claude Code is on.", "version": "2.1", "logged_in": True, "internet": True, "remote": {"wanted": False}, "pending_changes": True}
-                pg.route("**/api/claude/status", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(st)))
-                pg.route("**/api/claude/changes", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps({"empty": False, "files": [{"path": "traffic_tester/static/style.css"}], "stat": "1 file changed, 2 insertions(+)", "blocked": [],
-                         "patch": "diff --git a/traffic_tester/static/style.css b/traffic_tester/static/style.css\n@@ -1,3 +1,4 @@\n-.btn{padding:10px 18px}\n+.btn{padding:12px 20px;border-radius:12px;font-weight:700;letter-spacing:.02em}\n"})))
-                nd = "\n".join(json.dumps(x) for x in [{"t": "text", "text": "The last run failed because 14 of 200 messages were slower than the 60 ms limit. The slowest took 212 ms; look at the delay chart near second 40."},
-                                                        {"t": "action", "name": "open_screen", "input": {"tab": "results"}, "id": "a1"}, {"t": "action_result", "id": "a1", "ok": True, "text": json.dumps({"opened": "results"})},
-                                                        {"t": "text", "text": "I can make the Start button larger if you like. Averyveryverylongunbrokenwordtotesthowawrapbehavesinthechatbubbleonanarrowscreen0123456789."}, {"t": "done", "changes": True}]) + "\n"
-                pg.route("**/api/claude/chat", lambda r: r.fulfill(status=200, content_type="application/x-ndjson", body=nd))
-                pg.click("#askBtn"); pg.wait_for_selector("#askIn"); pg.fill("#askIn", "Why did the last test fail? Also make the buttons bigger please."); pg.click("#askSend"); pg.wait_for_selector(".chg", timeout=8000); time.sleep(0.6)
-                dlg("Ask Claude panel (on: conversation, action card, change card with Apply / Discard)", "#askPanel", expect_full=(W <= 700 or (H <= 480 and W <= 1000)))
-                if shots: pg.screenshot(path=os.path.join(SHOTS, f"mobile-askclaude-on-{cname.replace('-dark', '')}{'-dark' if theme == 'dark' else ''}.png"))
-                pg.click(".chg [data-a=apply]"); pg.wait_for_selector("#modal .box"); time.sleep(0.3)
-                dlg("confirm dialog opened from inside the Ask Claude panel (Apply this change?)", "#modal .box"); pg.click("#mNo"); time.sleep(0.2)
-                pg.click("#askClose"); pg.unroute("**/api/claude/status"); pg.unroute("**/api/claude/changes"); pg.unroute("**/api/claude/chat"); time.sleep(0.3)
                 # charts follow a rotation: Run/Results chart widths equal their box after the viewport is swapped
                 go("results"); pg.locator(".runlist tr[data-run]").first.click(); pg.wait_for_selector("#detail .u-wrap canvas"); time.sleep(0.6)
                 pg.set_viewport_size({"width": H, "height": W}); time.sleep(1.0)

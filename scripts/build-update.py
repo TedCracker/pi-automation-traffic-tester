@@ -11,8 +11,8 @@ from traffic_tester.update import bundle as B, ed25519
 import importlib.util
 spec = importlib.util.spec_from_file_location("release_keys", os.path.join(ROOT, "scripts", "release-keys.py")); RK = importlib.util.module_from_spec(spec); spec.loader.exec_module(RK)
 
-APP_SCRIPTS = ["net-split.sh", "tt-rc-run", "tt-rc-sync", "claude_real_probe.py"]
-EXTRA = ["install-pi.sh", "install-claude.sh", "install-wifi-nexmon.sh"]
+APP_SCRIPTS = ["net-split.sh"]
+EXTRA = ["install-pi.sh", "install-wifi-nexmon.sh"]
 CACHE = os.path.expanduser("~/.cache/pi-traffic-tester/wheels")
 
 

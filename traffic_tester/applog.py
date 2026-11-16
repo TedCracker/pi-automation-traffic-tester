@@ -1,4 +1,4 @@
-"""App log: in memory (last 500 lines, for the UI and Claude) and in <data_dir>/app.log (rotating)."""
+"""App log: in memory (last 500 lines, for the UI) and in <data_dir>/app.log (rotating)."""
 from __future__ import annotations
 
 import collections

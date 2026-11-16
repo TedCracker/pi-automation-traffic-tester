@@ -16,7 +16,7 @@ def main():
     a = ap.parse_args()
     if a.role:
         print("Note: --role is ignored. There are no fixed roles any more: every Pi is the same; each test picks its source and destination.", file=sys.stderr)
-    os.environ["TT_PORT"] = str(a.port)          # the Claude tool server and the Pi list call back to this port
+    os.environ["TT_PORT"] = str(a.port)          # the Pi list calls back to this port
     uvicorn.run(create_app(a.data_dir, a.role or os.environ.get("TT_ROLE")), host=a.host, port=a.port, log_level="warning")
 
 

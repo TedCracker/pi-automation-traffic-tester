@@ -32,19 +32,17 @@ from . import netcheck
 from .aiguide import build as aig
 from .aiguide.model import to_html, to_text
 from .applog import AppLog
-from .claude import auth as cauth, tools as ctools
-from .claude.env import ClaudeEnv, OFF_MSG
-from .claude.remote import RemoteControl
-from .claude.runner import ChatRunner
-from .claude.state import ClaudeState, internet_ok
-from .claude.workspace import Workspace, WorkspaceError
 import collections, logging
-NOT_SIGNED_IN_MSG = 'Claude Code is not signed in on this Pi.'
 from .runmgr import Busy, RunManager
 from .update.manager import UpdateError, UpdateManager, MAX_UPLOAD
 from .store import BuiltinError, Store
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
+
+
+def app_dir() -> str:
+    """Where the app lives (the folder an update replaces)."""
+    return os.environ.get("TT_APP_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import mimetypes
 mimetypes.add_type("application/manifest+json", ".webmanifest")      # the web app manifest ("Add to Home Screen"); not in every OS's mime table
 
@@ -72,19 +70,8 @@ class AppState:
         self.migrated = migrate_roles(self, role)
         self.tokens: set = set()
         self.secret = secrets.token_bytes(16)
-        # --- Claude Code integration (OFF by default; the tester never depends on it)
         self.applog = AppLog(data_dir)
-        self.ui_state: dict = {}
-        self.ui_events: collections.deque = collections.deque(maxlen=500)
-        self.cenv = ClaudeEnv(data_dir)
-        self.cstate = ClaudeState(self.cenv)
-        self.cws = Workspace(self.cenv.live_dir, self.cenv.work_dir)
-        self.ctoken = secrets.token_hex(24)                       # lives only in memory and in the spawned Claude process
-        self.runner = ChatRunner(self.cenv, self.cstate, self.cws, self.ctoken)
-        self.toolbox = ctools.ToolBox(self)
-        self.rc = RemoteControl(self.cstate)
-        self.login: Optional[cauth.LoginFlow] = None
-        self.updates = UpdateManager(data_dir, self.cenv.live_dir, __version__, busy=lambda: bool((self.runs.status() or {}).get("running")) or self.gen_node.busy(),
+        self.updates = UpdateManager(data_dir, app_dir(), __version__, busy=lambda: bool((self.runs.status() or {}).get("running")) or self.gen_node.busy(),
                                      get_setting=self.store.get_setting, set_setting=self.store.set_setting)
         logging.getLogger("tt").info("Pi Automation Traffic Tester %s started (Pi name %s)", __version__, self.me.name)
 
@@ -113,9 +100,6 @@ class AppState:
             logging.getLogger("tt").warning("Generator: could not stop the left-over test: %s", e)
             return False
         return True
-
-    def push_ui(self, ev: dict) -> None:
-        self.ui_events.append(ev)
 
     # --- password (optional)
     def pw_hash(self) -> Optional[str]:
@@ -162,6 +146,27 @@ def migrate_roles(st: "AppState", role_arg: Optional[str]) -> dict:
 
 def create_app(data_dir: str, role: Optional[str] = None) -> FastAPI:
     st = AppState(data_dir, role)
+
+    def _claude_leftovers():
+        """A Pi that was updated from 1.6 or older may still carry the removed Ask Claude feature (units, package, sign-in folder). The privileged helper cleans it up.
+        Right after an update the helper is still finishing the update (its health check waits for this app), so the first request can be missed: try again a few times."""
+        try:
+            from .netcfg import client as ncl
+            from .update import claude_cleanup as cc
+            if ncl.fake() or not ncl.available()[0]:
+                return
+            for attempt in range(6):
+                if not cc.leftovers(st.data_dir, "/etc", app_dir()):
+                    return
+                r = ncl.call("claude_cleanup", wait=45)
+                if r.get("ok") is not None:
+                    logging.getLogger("tt").info("Ask Claude leftovers: %s", r.get("message"))
+                    if r.get("ok"):
+                        return
+                time.sleep(30 if attempt else 60)
+        except Exception as e:  # noqa
+            logging.getLogger("tt").warning("Ask Claude leftovers could not be cleaned up: %s", e)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         bg = asyncio.create_task(broadcaster())
@@ -172,6 +177,7 @@ def create_app(data_dir: str, role: Optional[str] = None) -> FastAPI:
                     if system.is_wifi(i["name"]) and system.wifi_power_save(i["name"]):
                         system.wifi_powersave_off(i["name"])
             threading.Thread(target=_keep_off, daemon=True).start()
+        threading.Thread(target=_claude_leftovers, daemon=True).start()
         if os.environ.get("TT_NO_DEFAULT_REFLECTOR") != "1":
             st.reflectors.start_defaults()                  # every Pi answers UDP and TCP on the test port from the moment the app starts
         st.peers.start()
@@ -215,8 +221,7 @@ def create_app(data_dir: str, role: Optional[str] = None) -> FastAPI:
     @app.middleware("http")
     async def auth(request: Request, call_next):
         path = request.url.path
-        open_paths = ("/api/claude/logout", "/api/claude/status")            # signing OUT never needs a password; status is harmless
-        if st.pw_hash() and path.startswith("/api/") and not path.startswith("/api/auth/") and path not in ("/api/status", "/api/peer/info") and path not in open_paths and not path.startswith("/api/claude/tool/"):
+        if st.pw_hash() and path.startswith("/api/") and not path.startswith("/api/auth/") and path not in ("/api/status", "/api/peer/info"):
             if request.cookies.get("tt_token") not in st.tokens:
                 return JSONResponse({"detail": "Password required"}, status_code=401)
         resp = await call_next(request)
@@ -1243,180 +1248,6 @@ def create_app(data_dir: str, role: Optional[str] = None) -> FastAPI:
     def net_check():
         return netcheck.check(netcheck.peers_from_profiles(st.store.list_profiles()))
 
-    # ------------------------------------------------------------ Claude Code (off by default; every endpoint below refuses when off)
-    def claude_on():
-        if not st.cstate.enabled:
-            raise HTTPException(403, OFF_MSG)
-
-    @app.get("/api/claude/status")
-    def claude_status():
-        on = st.cstate.enabled
-        d = {"enabled": on, "installed": bool(st.cenv.binary()), "password_set": bool(st.pw_hash()), "can_login": bool(st.pw_hash()),
-             "message": "Claude Code is on." if on else "Claude Code is off."}
-        if on:                                                   # only ask the CLI / network when it is on
-            d.update(version=st.cstate.version(), logged_in=st.cstate.logged_in(), internet=internet_ok(), remote={"wanted": st.cstate.remote_wanted, **st.rc.status()},
-                     pending_changes=not st.cws.diff()["empty"] if os.path.isdir(os.path.join(st.cenv.work_dir, ".git")) else False)
-        return d
-
-    @app.post("/api/claude/login/start")
-    def claude_login_start():
-        if not st.pw_hash():
-            raise HTTPException(403, "Set a web password first (Settings → Security). It protects Claude sign-in, so nobody at the site can start it.")
-        if st.login:
-            st.login.cancel()
-        st.login = cauth.LoginFlow(st.cenv, st.cstate)
-        try:
-            st.login.start()
-        except FileNotFoundError as e:
-            raise HTTPException(409, str(e))
-        for _ in range(40):                                      # give the CLI a moment to print the sign-in link
-            time.sleep(0.25)
-            if st.login.url or st.login.status in ("failed", "success"):
-                break
-        return st.login.info()
-
-    @app.get("/api/claude/login/status")
-    def claude_login_status():
-        if not st.login:
-            return {"status": "none"}
-        return st.login.info()
-
-    @app.post("/api/claude/login/code")
-    def claude_login_code(body: dict = Body(...)):
-        if not st.pw_hash():
-            raise HTTPException(403, "Set a web password first.")
-        if not st.login:
-            raise HTTPException(409, "Start the sign-in first.")
-        try:
-            st.login.submit(str(body.get("code", "")))
-        except RuntimeError as e:
-            raise HTTPException(409, str(e))
-        for _ in range(60):
-            time.sleep(0.5)
-            if st.login.status in ("success", "failed"):
-                break
-        return st.login.info()
-
-    @app.post("/api/claude/login/cancel")
-    def claude_login_cancel():
-        if st.login:
-            st.login.cancel()
-            st.login = None
-        return {"ok": True}
-
-    @app.post("/api/claude/logout")
-    def claude_logout():
-        st.runner.stop()
-        if st.login:
-            st.login.cancel()
-            st.login = None
-        r = cauth.logout(st.cenv, st.cstate, stop_remote=lambda: st.rc.stop())
-        st.ui_state = {}
-        st.runner.new_chat()
-        logging.getLogger("tt").info("Claude Code signed out; credentials wiped; verified=%s", r["verified"])
-        return r
-
-    @app.post("/api/claude/chat")
-    def claude_chat(body: dict = Body(...)):
-        claude_on()
-        msg = str(body.get("message", "")).strip()[:4000]
-        if not msg:
-            raise HTTPException(422, "Type a message first.")
-        from fastapi.responses import StreamingResponse
-
-        def gen():
-            for ev in st.runner.stream(msg):
-                yield json.dumps(ev, default=str) + "\n"
-        return StreamingResponse(gen(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store"})
-
-    @app.post("/api/claude/stop")
-    def claude_stop():
-        claude_on()
-        st.runner.stop()
-        return {"ok": True}
-
-    @app.post("/api/claude/new")
-    def claude_new():
-        claude_on()
-        st.runner.new_chat()
-        return {"ok": True}
-
-    @app.get("/api/claude/changes")
-    def claude_changes():
-        claude_on()
-        return st.cws.diff()
-
-    @app.post("/api/claude/changes/apply")
-    def claude_apply(body: dict = Body(default={})):
-        claude_on()
-        if st.runs.busy():
-            raise HTTPException(409, "A test is running. Apply the change after it finishes (the app restarts).")
-        try:
-            r = st.cws.apply(str(body.get("message", "Change made by Claude")))
-        except WorkspaceError as e:
-            raise HTTPException(409, str(e))
-        logging.getLogger("tt").info("Claude change applied: %s", r["commit"][:8])
-        if os.environ.get("TT_RESTART_ON_APPLY", "1") == "1":
-            threading.Timer(1.5, lambda: os._exit(75)).start()        # non-zero exit: systemd restarts the app with the new code
-        return {**r, "restarting": os.environ.get("TT_RESTART_ON_APPLY", "1") == "1"}
-
-    @app.post("/api/claude/changes/discard")
-    def claude_discard():
-        claude_on()
-        st.cws.discard()
-        return {"ok": True}
-
-    @app.get("/api/claude/history")
-    def claude_history():
-        claude_on()
-        return st.cws.history()
-
-    @app.post("/api/claude/changes/revert")
-    def claude_revert(body: dict = Body(...)):
-        claude_on()
-        if st.runs.busy():
-            raise HTTPException(409, "A test is running. Undo the change after it finishes.")
-        try:
-            r = st.cws.revert(str(body.get("commit", "")))
-        except WorkspaceError as e:
-            raise HTTPException(409, str(e))
-        if os.environ.get("TT_RESTART_ON_APPLY", "1") == "1":
-            threading.Timer(1.5, lambda: os._exit(75)).start()
-        return r
-
-    @app.post("/api/claude/remote/start")
-    def claude_remote_start():
-        claude_on()
-        if not st.cstate.logged_in():
-            raise HTTPException(409, NOT_SIGNED_IN_MSG)
-        try:
-            return st.rc.start()
-        except RuntimeError as e:
-            raise HTTPException(409, str(e))
-
-    @app.post("/api/claude/remote/stop")
-    def claude_remote_stop():
-        claude_on()
-        return st.rc.stop()
-
-    @app.post("/api/ui/state")
-    def ui_state_post(body: dict = Body(...)):
-        if st.cstate.enabled:                                    # when Claude is off nothing about the screen is kept
-            st.ui_state = {**body, "reported_at": time.strftime("%H:%M:%S")}
-        return {"ok": True}
-
-    @app.post("/api/claude/tool/{name}")
-    def claude_tool(name: str, request: Request, body: dict = Body(default={})):
-        claude_on()
-        if request.headers.get("X-TT-Token") != st.ctoken or (request.client and request.client.host not in ("127.0.0.1", "::1", "testclient")):
-            raise HTTPException(403, "Not allowed.")
-        if name not in [t["name"] for t in ctools.TOOL_SPECS]:
-            raise HTTPException(404, "Unknown tool.")
-        try:
-            return getattr(st.toolbox, name)(**(body or {}))
-        except TypeError as e:
-            raise HTTPException(422, f"Bad arguments: {e}")
-
     # ------------------------------------------------------------ websocket
     @app.websocket("/ws/live")
     async def ws_live(ws: WebSocket):
@@ -1441,14 +1272,11 @@ def create_app(data_dir: str, role: Optional[str] = None) -> FastAPI:
             await asyncio.sleep(0.1)
             if not clients:
                 st.runs.ui_events.clear() if not st.runs.busy() else None
-                st.ui_events.clear()
                 continue
             evs = []
             q = st.runs.ui_events
             while q and len(evs) < 600:
                 evs.append(q.popleft())
-            while st.ui_events and len(evs) < 700:
-                evs.append(st.ui_events.popleft())
             if time.monotonic() - last_refl[0] > 1.0:
                 last_refl[0] = time.monotonic()
                 rs = st.reflectors.legacy_status()
@@ -1629,7 +1457,7 @@ def create_app(data_dir: str, role: Optional[str] = None) -> FastAPI:
         return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
     # JS/CSS compress about 4x: matters on first load over a slow Wi-Fi / cellular management link. Only the static files are
-    # wrapped: API responses (and the Ask Claude stream) are never buffered by a compressor.
+    # wrapped: API responses are never buffered by a compressor.
     fbapi.register(app, st)                                                     # first boot of a card image: Name this Pi
     netapi.register(app, st)                                                    # Settings -> Network (Wi-Fi access point, Ethernet ports, auto-revert)
     app.mount("/", GZipMiddleware(StaticFiles(directory=STATIC, html=True), minimum_size=1024, compresslevel=6), name="static")

@@ -1,5 +1,5 @@
 """Routing self-check (docs/SPEC.md 15): Wi-Fi is the management/internet path, Ethernet ports are the test (data) path.
-Internet / Claude traffic must never leave through a test port, or it skews jitter and latency."""
+Internet traffic must never leave through a test port, or it skews jitter and latency."""
 from __future__ import annotations
 
 import json
@@ -71,14 +71,14 @@ def check(peers: Optional[List[str]] = None) -> dict:
             continue
         role = iface_role(dev)
         if role == "test":
-            add("bad", f"{fam} internet traffic would use a test port", f"The route to the internet ({tgt}) leaves through {dev}, which is a test (Ethernet) port. Claude and updates would share the test path and distort delay and jitter.",
+            add("bad", f"{fam} internet traffic would use a test port", f"The route to the internet ({tgt}) leaves through {dev}, which is a test (Ethernet) port. Updates would share the test path and distort delay and jitter.",
                 "Run: sudo scripts/net-split.sh --apply   (sets 'never default' on the Ethernet ports)")
         elif role == "mgmt":
             add("ok", f"{fam} internet goes out over Wi-Fi", f"Route to {tgt}: {dev} (management path), as intended.")
         else:
             add("warn", f"{fam} internet goes out over {dev}", f"{dev} is neither Wi-Fi nor an Ethernet test port; make sure it is not used for tests.")
     if not any(res["internet"].values()):
-        add("ok", "No internet route", "There is no default route, so nothing leaves the Pi towards the internet. The app works fully offline; Ask Claude and updates need Wi-Fi internet.")
+        add("ok", "No internet route", "There is no default route, so nothing leaves the Pi towards the internet. The app works fully offline; Software updates need Wi-Fi internet.")
     if bad_default and not any(c["s"] == "bad" for c in checks):
         add("bad", "A default route is set on a test port", f"Default route via {', '.join(bad_default)}.", "Run: sudo scripts/net-split.sh --apply")
     for peer in peers or []:

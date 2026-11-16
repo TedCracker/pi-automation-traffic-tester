@@ -2,6 +2,11 @@
 
 One entry per version, newest first. The About page, "Check online" and the release notes are all built from this file.
 
+## 1.7.0 — 2026-11-15
+- **"Ask Claude" and Remote Control are gone.** The chat panel, the Claude Code card in Settings, the sign-in and Remote Control are removed from the app, the installer and the update. The tester itself works exactly as before, and the AI guide is still there for any AI assistant you want to use with it.
+- **Updating cleans up older installs.** A Pi that had Ask Claude gets its Remote Control units, the Claude Code package and Anthropic's apt repository, the saved sign-in and the app's change history removed once, on the first start of 1.7.0. Saved tests and results are never touched.
+- The installer still accepts `--with-claude` so old commands keep working; it now prints a note and does nothing.
+
 ## 1.6.1 — 2026-11-16
 - **Radio serial packetization is recorded with every run.** Serial tests have a new "Radio serial packetization" section (character timeout, packet size, serial mode, note), always visible on the DER transfer trip — Orbit radio test with the advice to set the radio to one message per packet (character timeout about 2 character times, packet size = the 19-byte frame). It shows on Results, the PDF, the CSV and JSON exports and the compare view; when empty, Results says "radio packetization not recorded". The Pi never changes the radio.
 - **Warns when the radio bundles messages.** If frames arrive together in bursts, or the round trips sit at fixed steps, Results says "the radio seems to be bundling messages — check its character timeout".

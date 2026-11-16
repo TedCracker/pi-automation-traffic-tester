@@ -20,7 +20,6 @@ TOP_CONTROLS = [
     C("top-pi-name", "<this Pi's name>", "Top right of the top bar: the name of the Pi you are using (for example pi1); nothing else is shown about it. Tap it to open Settings (name, other Pis, time source, network)."),
     C("top-signed-in", "Signed in", "Next to the name, only when a web password is set on this Pi (it appears when a screen opens, so right after setting a password it shows from the next screen)."),
     C("top-sign-out", "Sign out", "Next to 'Signed in' (only when a web password is set): signs this browser out of this Pi; the password stays set."),
-    C("top-ask-claude", "✦ Ask Claude", "Opens the Ask Claude side panel (only useful when Claude Code is turned on in Settings)."),
     C("top-switch-theme", "Switch theme", "Toggles light / dark."),
 ]
 
@@ -426,7 +425,7 @@ VIEWS: Dict[str, dict] = {
             C("sniffer-start-capture", "▶ Start capture", "Starts capturing. While it runs the screen shows live packet counts and a stop button; the result (files, protocols, top talkers) appears afterwards and under Results."),
         ]),
     "settings": dict(tab="settings", title="Settings", reach=[("click", "tab-settings"), ("click", "thispi-advanced"), ("click", "settings-also-update-another-pi")],
-        purpose="Cards from top to bottom: 🥧 This Pi (the Pi's name, id, addresses, hardware, software version, the ports it always answers on, how it is announced on the network, and 'Advanced: test ports'), 📡 Pis on this network (every other Pi this Pi knows: found by itself or added by IP, with a row per Pi and an 'Add a Pi by IP address' form; the list refreshes every 10 s), 🕒 Time source (which Pi serves the clock; one-way timing needs the Pis on the same clock), 🌐 Network (Wi-Fi: access point / join a Wi-Fi network / off; each Ethernet port: DHCP or static, VLAN, Internet / Test label; with a safety net that reverts a change by itself unless you keep it), ⬆ Software update (installed version and date; update from a file uploaded from a phone/PC, or check the online channel; every update is signature-checked, installed with an automatic rollback if the new version does not start, and can be rolled back; saved tests and results are never touched; 'Also update another Pi' sends the ready update to a listed Pi), 🔒 Web password, 🌐 Network check (self-check that Wi-Fi carries the internet and the Ethernet test ports never become the way out), ✦ Claude Code (off by default; sign-in, Remote Control, change history).",
+        purpose="Cards from top to bottom: 🥧 This Pi (the Pi's name, id, addresses, hardware, software version, the ports it always answers on, how it is announced on the network, and 'Advanced: test ports'), 📡 Pis on this network (every other Pi this Pi knows: found by itself or added by IP, with a row per Pi and an 'Add a Pi by IP address' form; the list refreshes every 10 s), 🕒 Time source (which Pi serves the clock; one-way timing needs the Pis on the same clock), 🌐 Network (Wi-Fi: access point / join a Wi-Fi network / off; each Ethernet port: DHCP or static, VLAN, Internet / Test label; with a safety net that reverts a change by itself unless you keep it), ⬆ Software update (installed version and date; update from a file uploaded from a phone/PC, or check the online channel; every update is signature-checked, installed with an automatic rollback if the new version does not start, and can be rolled back; saved tests and results are never touched; 'Also update another Pi' sends the ready update to a listed Pi), 🔒 Web password, 🌐 Network check (self-check that Wi-Fi carries the internet and the Ethernet test ports never become the way out).",
         controls=[
             C("thispi-card", "This Pi", "The card 'This Pi'."),
             C("thispi-name-input", "Pi name", "This Pi's name: 1 to 32 letters, digits, spaces, dots, dashes or underscores. Empty = the Pi's own host name. The other Pis, the top bar, results and reports show it; it is also the Wi-Fi name when this Pi is an access point."),
@@ -537,8 +536,6 @@ VIEWS: Dict[str, dict] = {
             C("settings-remove-password", "Remove password", "Only shown when a password is set (asks to confirm)."),
             C("settings-check-again", "Check again", "Repeats the 'Network check' self-check."),
             C("settings-ai-guide", "AI guide", "A link to this guide (also in the footer of every screen)."),
-            C("settings-how-signing-in-works", "How signing in works", "Opens a short explanation of the Claude sign-in (Claude Code card)."),
-            C("settings-log-in", "Log in", "Claude Code card: starts the sign-in with a Claude account (needs a web password and an installed Claude Code)."),
         ]),
     "about": dict(tab="about", title="About", reach=[("click", "app-version")],
         purpose="Opens from the version label under the app name, the top bar 'About' link or the footer. Shows the installed version and date, the previous version kept for rolling back, which Pi this is (its name, host name and hardware), the update status (last check, newest version offered; the update itself is in Settings → Software update) and 'What's new': what changed in every version, newest first, in plain English. After an update the first page load also shows a one-time 'Updated to vX — what's new' banner.",
@@ -551,13 +548,6 @@ VIEWS: Dict[str, dict] = {
             C("updated-banner", "Updated to v<version> — what's new", "One-time banner after an update (per browser)."),
             C("updated-banner-dismiss", "Dismiss", "Closes the banner."),
             C("updated-banner-about", "Open About", "Closes the banner and opens this screen."),
-        ]),
-    "ask": dict(tab="*", title="Ask Claude panel", reach=[],
-        purpose="Optional side panel for Claude Code on this Pi. Off by default: it then only shows why it is off and a Log in button.",
-        controls=[
-            C("ask-message-to-claude", "Message to Claude", "Where you type a question (when Claude Code is on)."),
-            C("ask-send", "Send", "Sends it."),
-            C("ask-new-chat", "New chat", "Starts a fresh conversation."),
         ]),
     "results-special": dict(tab="results", title="Results: extra cards on some tests", reach=[("click", "tab-results")],
         purpose="Cards that only appear on some opened results, below the verdict banner.",
@@ -865,20 +855,11 @@ RECIPES: List[dict] = [
              see("The checkbox 'If the Pi has no network at all for 3 minutes, start its own Wi-Fi' (selector [data-testid=\"net-fallback\"]) turns the emergency access point on or off: it lets you always get back in. A test that would run over the Wi-Fi or over an Internet-only port is flagged by the check in the Start bar of the New test page before it starts."),
          ]),
     dict(id="set-password", title="Protect the app with a web password",
-         when="Recommended before the Pi is on a shared network, and required before Claude Code can be turned on. Another Pi that controls this one needs this password saved in its Pis list ('Set password' on that row).",
+         when="Recommended before the Pi is on a shared network. Another Pi that controls this one needs this password saved in its Pis list ('Set password' on that row).",
          steps=[
              goto("settings"),
              typ("settings-password", "Password", "<at least 4 characters>"),
              click("settings-set-password", "Set password", "You stay signed in on this browser; other browsers must enter it. 'Signed in' and 'Sign out' then appear next to the Pi's name in the top bar (from the next screen you open, or after a reload)."),
-         ]),
-    dict(id="ask-claude", title="Turn on Claude Code on the Pi (optional) and use Ask Claude",
-         when="Claude Code is an optional extra: the tester works fully without it. Needs a web password, Claude Code installed on the Pi (installer option --with-claude) and internet.",
-         steps=[
-             goto("settings"),
-             click("settings-log-in", "Log in", "Shows a link and asks for a code: open the link on a phone or PC, approve, paste the code back and click 'Finish sign-in'."),
-             click("top-ask-claude", "✦ Ask Claude", "Opens the panel."),
-             typ("ask-message-to-claude", "Message to Claude", "Why did my last test fail?"),
-             click("ask-send", "Send"),
          ]),
     dict(id="switch-theme", title="Switch between light and dark",
          when="Any time.", steps=[click("top-switch-theme", "Switch theme")]),
@@ -1034,24 +1015,6 @@ RN = {
     "POST /api/update/rollback": "Go back to the previous version (swap; press again to go forward).",
     "POST /api/update/settings": "Turn the daily update check (notify only) on or off.",
     "POST /api/update/partner": "Push the staged update to another Pi (a listed Pi or a typed address) and install it there.",
-    "GET /api/claude/status": "Claude Code on/off, installed, signed in. No secrets.",
-    "POST /api/claude/login/start": "Begin Claude sign-in.",
-    "GET /api/claude/login/status": "Sign-in progress.",
-    "POST /api/claude/login/code": "Finish sign-in with the pasted code.",
-    "POST /api/claude/login/cancel": "Cancel sign-in.",
-    "POST /api/claude/logout": "Log out and turn Claude Code off.",
-    "POST /api/claude/chat": "Send a message to Ask Claude.",
-    "POST /api/claude/stop": "Stop Claude's current answer.",
-    "POST /api/claude/new": "New Ask Claude conversation.",
-    "GET /api/claude/changes": "Changes Claude proposes to the app.",
-    "POST /api/claude/changes/apply": "Apply proposed changes.",
-    "POST /api/claude/changes/discard": "Discard proposed changes.",
-    "GET /api/claude/history": "Changes Claude made, for undo.",
-    "POST /api/claude/changes/revert": "Undo one change.",
-    "POST /api/claude/remote/start": "Start Claude Remote Control.",
-    "POST /api/claude/remote/stop": "Stop Claude Remote Control.",
-    "POST /api/ui/state": "The page reports what screen it shows (used by Ask Claude).",
-    "POST /api/claude/tool/{name}": "Internal: Claude's tools; needs a process-private token, not usable from a browser.",
     "GET /api/ai-context": "One-line live state for the 'For AI assistants' note (read-only).",
     "GET /ai-guide": "This guide as a web page (read-only).",
     "GET /ai-guide.txt": "This guide as plain text (read-only).",
@@ -1061,7 +1024,7 @@ RN = {
 }
 # routes the guide does not list (framework pages and static files)
 ROUTE_SKIP = {"GET /docs", "GET /docs/oauth2-redirect", "GET /redoc", "GET /", "GET /index.html"}
-INTERNAL_ROUTES = {"POST /api/claude/tool/{name}", "POST /api/ui/state"}
+INTERNAL_ROUTES: set = set()
 
 # ---------------------------------------------------------------------------------------------- how to read results
 READING = [
@@ -1146,6 +1109,6 @@ VIEWS_BY_TAB_SUMMARY = {
     "results": "Results: finished tests by session (who sent to whom), verdict, numbers, charts, exports (CSV, JSON, PDF, ZIP, USB).",
     "generator": "Generator (traffic generator): streams from one Pi to another (N → M), set rate, measure throughput, loss, delay, jitter per pair.",
     "sniffer": "Sniffer: capture Ethernet, serial or Wi-Fi traffic to pcapng files and summarise it.",
-    "settings": "Settings: this Pi's name, Pis on this network, time source, Network (Wi-Fi access point, Ethernet), software update, web password, optional Claude Code.",
+    "settings": "Settings: this Pi's name, Pis on this network, time source, Network (Wi-Fi access point, Ethernet), software update, web password.",
 }
 RECIPES_TITLE = {r["id"]: r["title"] for r in RECIPES}

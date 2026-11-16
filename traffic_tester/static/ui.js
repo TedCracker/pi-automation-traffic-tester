@@ -97,7 +97,7 @@ export function promptBox(title, label, value = '', okLabel = 'Save') {
   });
 }
 
-// Charts follow their box: phone rotation, the Ask Claude panel opening, a resized window. (uPlot draws at a fixed pixel width.)
+// Charts follow their box: phone rotation, a resized window. (uPlot draws at a fixed pixel width.)
 export function fitPlot(p, el, h) {
   if (p && el && window.ResizeObserver) new ResizeObserver(() => { const w = Math.max(200, el.clientWidth); if (Math.abs(w - p.width) > 1) p.setSize({ width: w, height: h || p.height }); }).observe(el);
   return p;

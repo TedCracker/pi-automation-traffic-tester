@@ -1,8 +1,8 @@
 #!/bin/bash
 # Phase 7: the WHOLE Pi Automation Traffic Tester, two identical Pis (no roles), tests started on either one. Runs every suite one after the other and prints one summary.
-#   scripts/e2e-full.sh              native suites (unit tests, two-instance e2e started on either one, peers, both ways at once, one way each way, sniffer container e2e, network split, Claude UI both ways, UI/API sweep)
-#   scripts/e2e-full.sh --arm64      the same plus the arm64 (QEMU) install + e2e and the real-Claude-CLI arm64 check (slow: ~40 min)
-# Logs: docs/e2e-last.log  e2e-reverse-last.log  e2e-sniff-last.log  e2e-netsplit-last.log  e2e-claude-ui-last.log  e2e-claude-ui-reverse-last.log  e2e-ui-sweep-last.log  arm64/*.log
+#   scripts/e2e-full.sh              native suites (unit tests, two-instance e2e started on either one, peers, both ways at once, one way each way, sniffer container e2e, network split, UI/API sweep)
+#   scripts/e2e-full.sh --arm64      the same plus the arm64 (QEMU) install + e2e (slow: ~40 min)
+# Logs: docs/e2e-last.log  e2e-reverse-last.log  e2e-sniff-last.log  e2e-netsplit-last.log  e2e-ui-sweep-last.log  arm64/*.log
 cd "$(dirname "$0")/.." || exit 1
 ARM=0; [ "${1:-}" = "--arm64" ] && ARM=1
 SUM=docs/e2e-full-summary.txt; : > "$SUM"
@@ -16,11 +16,8 @@ run "tests started on the first instance, naming the second (serial, UDP, TCP, n
 E2E_REVERSE=1 run "tests started on the second instance, naming the first (same suite)" docs/e2e-reverse-last.log scripts/e2e-local.sh
 run "Sniffer, real dumpcap/tshark/bridge, two Pis both ways" docs/e2e-sniff-last.log scripts/e2e-sniff.sh
 run "Network split (Wi-Fi internet vs Ethernet test), both ways" docs/e2e-netsplit-last.log scripts/e2e-netsplit.sh
-run "Ask Claude sidebar + log in/out, sidebar on the first instance" docs/e2e-claude-ui-last.log scripts/e2e-claude-ui.sh
-E2E_REVERSE=1 run "Ask Claude sidebar + log in/out, sidebar on the second instance" docs/e2e-claude-ui-reverse-last.log scripts/e2e-claude-ui.sh
 run "Web UI + API sweep of two instances (real browser)" docs/e2e-ui-sweep-last.log scripts/e2e-ui-sweep.sh
 if [ "$ARM" = 1 ]; then
   echo "== arm64"; scripts/arm64-check.sh >/dev/null 2>&1; row "arm64 (QEMU) install + unit + e2e (see log)" "$(grep -cE '\| pass \|' docs/arm64/arm64-check.log) pass / $(grep -cE '\| FAIL \|' docs/arm64/arm64-check.log) FAIL / $(grep -c '| unresolved |' docs/arm64/arm64-check.log) unresolved"
-  scripts/arm64-claude-check.sh >/dev/null 2>&1; row "arm64 real Claude CLI check" "$(tail -1 docs/arm64/arm64-claude.log)"
 fi
 row "Total time" "$(( ($(date +%s) - t0) / 60 )) min"

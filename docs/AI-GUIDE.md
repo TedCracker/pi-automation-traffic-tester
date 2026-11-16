@@ -61,7 +61,7 @@ Every Pi gets the same guide (no roles since 1.2.0). Typical size: 16k tokens.
 - Takes `document.cloneNode(true)` (a *detached copy*), removes `script, style, nav, header, footer, aside, [aria-hidden="true"], noscript`,
   picks the **first** element matching `main, article, [role="main"], #content, .content, .main-content` (else `<body>`), reads its `innerText`,
   collapses all whitespace to single spaces and **keeps the first 15 000 characters** (`.slice(0, 15000)`: head kept, **tail cut**).
-- So: header (tab names, the Pi's name, Ask Claude, theme button), footer and the Ask-Claude `<aside>` are **not** read; only what is inside `<main>` is. Structure is flattened to one line (no newlines).
+- So: header (tab names, the Pi's name, theme button) and footer are **not** read; only what is inside `<main>` is. Structure is flattened to one line (no newlines).
   Because the copy is not rendered, `innerText` falls back to `textContent`: hidden (`display:none`, closed `<details>`) text *would* be included, but the guide does not rely on that:
   everything the AI needs is plain visible text.
 - **When it re-reads:** only on `chrome.tabs.onActivated` (switching tabs) and `chrome.tabs.onUpdated` with `status === 'complete'` (a real page load) for the context tab (`panel.js:4041-4052`), and when
@@ -93,7 +93,7 @@ The screen sentence and live line are refreshed by `static/aiguide.js` when the 
 
 ## Safety
 - Read-only: only `GET /ai-guide`, `/ai-guide.txt`, `/llms.txt`, `/api/ai-context` were added; none changes state (unit test snapshots the stores before and after, and checks POST/PUT/DELETE are refused).
-- No secrets: no password hash, token, Wi-Fi key, Claude credential, MAC address (unit test seeds fake secrets and greps every output). Only the *fact* that a password is set / Claude is on.
+- No secrets: no password hash, token, Wi-Fi key, MAC address (unit test seeds fake secrets and greps every output). Only the *fact* that a password is set.
 - Login rule: with a web password set, `/ai-guide*` and `/` serve the how-to part to everyone but replace the live state with "hidden" unless the browser has the login cookie; `/api/ai-context` is behind the password like every `/api` route.
 - Every Pi has the same guide (there are no roles since 1.2.0).
 

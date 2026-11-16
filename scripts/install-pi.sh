@@ -16,13 +16,13 @@
 #          --nexmon DIR  install the built-in Wi-Fi sniffing driver from DIR (modules/ firmware/) even though this is not a Pi 5 (image build)
 #          --offline DIR  install fully offline from the offline package folder DIR (apt/ wheels/ nexmon/): no internet needed
 #          --no-wifi-nexmon  skip the built-in Wi-Fi (Nexmon) sniffing step
-#          --with-claude  also install Claude Code (Anthropic's signed apt repo): "Ask Claude" + Remote Control. OFF until you log in from the app.
+#          --with-claude  no longer does anything (the Ask Claude feature was removed in 1.7.0); accepted so old commands keep working
 #          --no-net-split  do not set the Ethernet test ports to "never default route" (default: Wi-Fi = internet, Ethernet = test traffic only)
 #          --uninstall  --purge (with --uninstall: also delete saved tests/results)
 # Safe to run again: it updates the files and restarts the service.
 set -euo pipefail
 
-PORT=8080; NTP=""; WIFI_MODE=""; FRESH=1; NO_SERVICE=0; UNINSTALL=0; PURGE=0; OFFLINE=""; NO_NEXMON=0; WITH_CLAUDE=0; NET_SPLIT=1; IMAGE=0; AP_SSID_OPT=""; NEXMON_OPT=""
+PORT=8080; NTP=""; WIFI_MODE=""; FRESH=1; NO_SERVICE=0; UNINSTALL=0; PURGE=0; OFFLINE=""; NO_NEXMON=0; NET_SPLIT=1; IMAGE=0; AP_SSID_OPT=""; NEXMON_OPT=""
 APP=/opt/traffic-tester; DATA=/var/lib/traffic-tester; CONF=/etc/traffic-tester/config.env
 UNIT=/etc/systemd/system/traffic-tester.service; UDEV=/etc/udev/rules.d/99-traffic-tester-ftdi.rules; SYSCTL=/etc/sysctl.d/99-traffic-tester.conf; NMCONF=/etc/NetworkManager/conf.d/99-traffic-tester.conf
 CHRONY=/etc/chrony/conf.d/traffic-tester.conf; SVC_USER=traffic-tester
@@ -48,7 +48,7 @@ while [ $# -gt 0 ]; do
     --no-wifi-nexmon) NO_NEXMON=1; shift;;
     --uninstall) UNINSTALL=1; shift;;
     --purge) PURGE=1; shift;;
-    --with-claude) WITH_CLAUDE=1; shift;;
+    --with-claude) echo "Note: --with-claude is ignored: the Ask Claude feature was removed from this app (1.7.0)." >&2; shift;;
     --no-net-split) NET_SPLIT=0; shift;;
     -h|--help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
     *) die "Unknown option: $1 (try --help)";;
@@ -80,7 +80,8 @@ if [ "$UNINSTALL" -eq 1 ]; then
     systemctl disable --now traffic-tester.service 2>/dev/null || true
   fi
   [ -x "$APP/install-wifi-nexmon.sh" ] && "$APP/install-wifi-nexmon.sh" --uninstall || true
-  [ -x "$APP/install-claude.sh" ] && "$APP/install-claude.sh" --uninstall || true     # forget any Claude sign-in, remove Remote Control units, undo the network split
+  [ -x "$APP/app/scripts/net-split.sh" ] && "$APP/app/scripts/net-split.sh" --undo >/dev/null 2>&1 || true     # undo the network split
+  [ -x "$APP/venv/bin/python" ] && PYTHONPATH="$APP/app" "$APP/venv/bin/python" -m traffic_tester.update.claude_cleanup --data "$DATA" --app "$APP/app" || true   # leftovers of the removed Ask Claude feature
   if [ -e "$NETWATCH_UNIT" ] && command -v systemctl >/dev/null 2>&1; then systemctl disable --now traffic-tester-netwatch.service 2>/dev/null || true; fi
   if command -v nmcli >/dev/null 2>&1; then          # the network profiles this app created (all are named tt-*: tt-ap, tt-fallback-ap, tt-wifi-N, tt-eth-*): other profiles are never touched
     nmcli -t -f NAME connection show 2>/dev/null | grep -E '^tt-[a-z0-9][a-z0-9._-]*$' | while IFS= read -r c; do nmcli connection delete id "$c" >/dev/null 2>&1 || true; done
@@ -154,12 +155,11 @@ if command -v dumpcap >/dev/null 2>&1; then
   setcap cap_net_raw,cap_net_admin=eip "$(command -v dumpcap)" 2>/dev/null || true   # capture without running anything as root
 fi
 mkdir -p "$APP" "$DATA" /etc/traffic-tester
-mkdir -p "$APP/app"; find "$APP/app" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +     # keep .git: the history of approved changes survives updates
+mkdir -p "$APP/app"; find "$APP/app" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 cp -r "$SRC/traffic_tester" "$SRC/requirements.txt" "$APP/app/"
 find "$APP/app" -name __pycache__ -type d -prune -exec rm -rf {} +
 cp "$SRC/scripts/install-pi.sh" "$APP/install-pi.sh" 2>/dev/null || true
 cp "$SRC/scripts/install-wifi-nexmon.sh" "$APP/install-wifi-nexmon.sh" 2>/dev/null || true
-cp "$SRC/scripts/install-claude.sh" "$APP/install-claude.sh" 2>/dev/null || true
 chown -R "$SVC_USER":"$SVC_USER" "$DATA"
 chmod 750 "$DATA"
 
@@ -183,8 +183,16 @@ CFG
 case "$OLD_ROLE" in A|B) echo "TT_ROLE=$OLD_ROLE" >> "$CONF";; esac
 chmod 644 "$CONF"
 
-# git record of the app, network split (Wi-Fi = internet), and (with --with-claude) Claude Code + Remote Control plumbing
-"$SRC/scripts/install-claude.sh" --apply --app "$APP" --data "$DATA" --conf "$CONF" --user "$SVC_USER" $([ "$WITH_CLAUDE" -eq 1 ] && echo --with-claude) $([ "$NET_SPLIT" -eq 0 ] && echo --no-net-split)
+# helper scripts next to the app, config the app reads, and the network split (Wi-Fi = internet + this web page, Ethernet test ports never the default route)
+mkdir -p "$APP/app/scripts"; [ -f "$SRC/scripts/net-split.sh" ] && install -m 755 "$SRC/scripts/net-split.sh" "$APP/app/scripts/net-split.sh"
+grep -q '^TT_APP_DIR=' "$CONF" 2>/dev/null || echo "TT_APP_DIR=$APP/app" >> "$CONF"
+grep -q '^TT_WIPE_STRAY=' "$CONF" 2>/dev/null || echo "TT_WIPE_STRAY=1" >> "$CONF"
+if [ "$NET_SPLIT" -eq 1 ] && [ "$HAVE_SYSTEMD" -eq 1 ]; then
+  say "Network: Wi-Fi = internet and this web page; Ethernet test ports never become the default route"
+  "$APP/app/scripts/net-split.sh" --apply || warn "Could not apply the network split. Check later in the app: Settings -> Network."
+fi
+# an older version may have installed the removed Ask Claude feature (Claude Code package, Remote Control units, sign-in folder): take it off again
+PYTHONPATH="$APP/app" "$APP/venv/bin/python" -m traffic_tester.update.claude_cleanup --data "$DATA" --app "$APP/app" 2>&1 | sed 's/^/   /' || true
 
 # Bigger kernel socket buffers for the traffic generator (the default cap, ~200 KB, can drop packets on a brief stall).
 if [ "$HAVE_SYSTEMD" -eq 1 ] || [ -d /etc/sysctl.d ]; then

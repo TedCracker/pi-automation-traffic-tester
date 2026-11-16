@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Phase 8 network split, proven end to end in network namespaces (needs sudo -n): two identical Pis (alpha and bravo; there are no roles) each have an Ethernet TEST port (eth0, no default route)
-and a Wi-Fi-like MANAGEMENT port (wlan0, default route to a fake internet at 1.1.1.1). Heavy "Claude / internet" traffic is pushed out of wlan0 on both Pis while
+and a Wi-Fi-like MANAGEMENT port (wlan0, default route to a fake internet at 1.1.1.1). Heavy "update / internet" traffic is pushed out of wlan0 on both Pis while
 test traffic runs alpha->bravo and bravo->alpha: the test path must show no extra delay/loss/bytes. Also: the routing self-check flags a default route on a test port.
 Run via scripts/e2e-netsplit.sh. Prints 'CHECK name | pass/FAIL | evidence'."""
 import json, os, signal, subprocess, sys, tempfile, time
@@ -153,7 +153,7 @@ try:
         def measured(with_flood):
             c0t, c0w = counters(tns, "eth0"), counters(tns, "wlan0")
             floods = []
-            if with_flood:      # Claude / update traffic from BOTH Pis out of wlan0, 40 Mb/s each, for the whole measurement
+            if with_flood:      # Update / internet traffic from BOTH Pis out of wlan0, 40 Mb/s each, for the whole measurement
                 for ns in (tns, ons):
                     f = subprocess.Popen(["sudo", "-n", "ip", "netns", "exec", ns, PY, "-c", FLOOD, "16", "4200"], stdout=subprocess.PIPE, text=True, start_new_session=True); procs.append(f); floods.append(f)
                 time.sleep(0.7)
@@ -168,7 +168,7 @@ try:
         r0, r1 = stat(tr0), stat(tr1)
         check(f"{tag}Baseline (no internet traffic): UDP trip test and 2-stream generator PASS", tr0["verdict"] == "PASS" and gn0["verdict"] == "PASS",
               f"trip p50={r0['p50']} p99={r0['p99']} ms lost={tr0['summary']['lost']}; gen fwd lat p50={g(gn0, 0)['lat_ms']['p50']} back p50={g(gn0, 1)['lat_ms']['p50']} loss={gn0['summary']['totals']['loss_pct']}%")
-        check(f"{tag}With 2 x 40 Mb/s Claude/internet traffic leaving over wlan0: test results unchanged (PASS, no loss)", tr1["verdict"] == "PASS" and gn1["verdict"] == "PASS" and tr1["summary"]["lost"] == 0 and gn1["summary"]["totals"]["lost"] == 0,
+        check(f"{tag}With 2 x 40 Mb/s update/internet traffic leaving over wlan0: test results unchanged (PASS, no loss)", tr1["verdict"] == "PASS" and gn1["verdict"] == "PASS" and tr1["summary"]["lost"] == 0 and gn1["summary"]["totals"]["lost"] == 0,
               f"trip p50={r1['p50']} p99={r1['p99']} lost={tr1['summary']['lost']}; gen fwd p50={g(gn1, 0)['lat_ms']['p50']} back p50={g(gn1, 1)['lat_ms']['p50']} lost={gn1['summary']['totals']['lost']}")
         d_rtt = abs(r1["p50"] - r0["p50"]); d_fwd = abs(g(gn1, 0)["lat_ms"]["p50"] - g(gn0, 0)["lat_ms"]["p50"]); d_back = abs(g(gn1, 1)["lat_ms"]["p50"] - g(gn0, 1)["lat_ms"]["p50"])
         check(f"{tag}Timing unaffected: median round trip / one-way delay shift < 0.5 ms with the internet load running", d_rtt < 0.5 and d_fwd < 0.5 and d_back < 0.5,

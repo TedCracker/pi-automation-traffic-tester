@@ -87,7 +87,7 @@ It needs the internet **once** (it downloads a few packages) and takes **3 to 10
 
 > **Important: the Wi-Fi changes.** On a fresh install the Pi's own Wi-Fi becomes a **hotspot** (named after the Pi, password `password`, address `10.42.0.1`). If you are logged in over *Wi-Fi*, the connection drops at that point. Either plug in an **Ethernet cable** before you start, or add `--wifi-mode keep` to leave the Wi-Fi as it is: `sudo bash scripts/install-pi.sh --wifi-mode keep`.
 
-Other options (all optional): `--ntp-server <IP>` take this Pi's clock from another Pi or a time server · `--port 9000` use another web port · `--with-claude` also install the optional "Ask Claude" helper (see [docs/INSTALL-PI.md](docs/INSTALL-PI.md)) · `--help` list everything. Running the installer again is safe: it updates the app and restarts it.
+Other options (all optional): `--ntp-server <IP>` take this Pi's clock from another Pi or a time server · `--port 9000` use another web port · `--help` list everything. Running the installer again is safe: it updates the app and restarts it.
 
 Repeat B1 to B4 for the second Pi (hostname `pi2`).
 
@@ -157,4 +157,4 @@ You usually do not need the address: `http://pi1.local:8080` works on most netwo
 | One-way delay looks wrong | The two Pis' clocks differ. Use round-trip results, or set a time source in Settings. |
 | Update fails | The app rolls back by itself. Look at **Settings → Software update**, or run the installer again from the newest code. |
 
-More help: [docs/INSTALL-PI.md](docs/INSTALL-PI.md) (serial ports, sniffer wiring, Claude), [docs/AI-GUIDE.md](docs/AI-GUIDE.md), and the **AI guide** link inside the app.
+More help: [docs/INSTALL-PI.md](docs/INSTALL-PI.md) (serial ports, sniffer wiring), [docs/AI-GUIDE.md](docs/AI-GUIDE.md), and the **AI guide** link inside the app.

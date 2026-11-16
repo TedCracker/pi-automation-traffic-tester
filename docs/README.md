@@ -13,7 +13,7 @@ Start with the [README](../README.md) and the beginner [install guide](../INSTAL
 ## Install and hardware
 | Guide | What it covers |
 |---|---|
-| [INSTALL-PI.md](INSTALL-PI.md) | Installer options, power, serial ports on the Pi 5, sniffer wiring and parts, Claude Code, SSH, updates, built-in Wi-Fi sniffing |
+| [INSTALL-PI.md](INSTALL-PI.md) | Installer options, power, serial ports on the Pi 5, sniffer wiring and parts, SSH, updates, built-in Wi-Fi sniffing |
 | [INSTALL-OFFLINE.md](INSTALL-OFFLINE.md) | Install from a locked-down Windows laptop with no internet on the Pi |
 | [MIRRORED-BITS-SPEC.md](MIRRORED-BITS-SPEC.md) | Mirrored Bits emulator spec (serial/UDP trip signalling) |
 

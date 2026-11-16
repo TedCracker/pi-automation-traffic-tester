@@ -169,8 +169,8 @@ try:
         pg.click("#updInstallOnline"); pg.click("#mYes"); pg.wait_for_timeout(2500)
         st = wait_status(PA); wait_up(PA); time.sleep(2)
         check("Install from Check online: signature verified, swapped, restarted, health check OK -> status ok, new version running", st and st["state"] == "ok" and version(PA) == v1, json.dumps(st)[:300])
-        files = dx("ttupd-a", "ls -d /opt/traffic-tester/app /opt/traffic-tester/app.prev; cat /opt/traffic-tester/app.prev/traffic_tester/__init__.py; ls -ld /opt/traffic-tester/app/traffic_tester/claude /opt/traffic-tester/app/scripts; systemctl is-active traffic-tester").stdout
-        check("old app kept as app.prev; Claude/scripts folders stay root-owned; service active", v0 in files and "root root" in files and files.strip().endswith("active"), files.replace("\n", " ")[:300])
+        files = dx("ttupd-a", "ls -d /opt/traffic-tester/app /opt/traffic-tester/app.prev; cat /opt/traffic-tester/app.prev/traffic_tester/__init__.py; ls -ld /opt/traffic-tester/app/traffic_tester; systemctl is-active traffic-tester").stdout
+        check("old app kept as app.prev; the app folder stays root-owned; service active", v0 in files and "root root" in files and files.strip().endswith("active"), files.replace("\n", " ")[:300])
         check("saved tests (profile created before the update) survive", any(p["id"] == marker for p in http(PA, "GET", "/api/profiles")[1]), f"marker profile {marker}")
         settings()
         pg.screenshot(path=f"{SHOTS}/update-2-after-install.png")

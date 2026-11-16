@@ -94,7 +94,7 @@ def build_plan(norm: dict, config: dict, raw_changes: Optional[dict] = None) -> 
             after[i] = {**(after.get(i) or {}), **norm["ports"][i], "link": (after.get(i) or {}).get("link", True)}
         wifi_net = (w["mode"] if w else wifi_now.get("mode")) == "client"
         if not wifi_net and not any(p.get("label") in ("internet", "both") for p in after.values()):
-            warnings.append("After this no port is labelled Internet, so the Pi cannot reach the internet (software updates, Ask Claude). Label one port Internet or Internet + Test.")
+            warnings.append("After this no port is labelled Internet, so the Pi cannot reach the internet (software updates). Label one port Internet or Internet + Test.")
     if norm.get("fallback") is not None:
         steps.append("Emergency access point: " + ("on. If the Pi has no network at all for 3 minutes it starts its own Wi-Fi." if norm["fallback"] else "off. The Pi will not start its own Wi-Fi when it loses the network."))
     affects = bool(reasons)

@@ -134,7 +134,7 @@ function paint() {
       <div class="row"><button class="btn primary" id="netWifiApply" data-testid="net-wifi-apply" ${cfg.available && w.present ? '' : 'disabled'}>Apply Wi-Fi settings</button></div></div>
     <div class="net-sec" data-testid="net-ports"><h3>Ethernet ports</h3>
       ${cfg.ports.length ? cfg.ports.map(portHtml).join('') : '<p class="muted">No Ethernet port found.</p>'}
-      <details class="net-help"><summary>What do the labels mean?</summary><p><b>Internet</b>: the Pi may use this port to reach the internet (software updates, Ask Claude).
+      <details class="net-help"><summary>What do the labels mean?</summary><p><b>Internet</b>: the Pi may use this port to reach the internet (software updates).
         <b>Test</b>: test traffic only; it is never the Pi's way out to the internet, so management traffic cannot disturb a test.
         <b>Internet + Test</b>: both. A test that would go over the Pi's Wi-Fi or an Internet-only port is flagged before it starts.</p></details></div>
     <div class="net-sec"><label class="chk"><input type="checkbox" id="netFallback" data-testid="net-fallback" ${cfg.fallback.enabled ? 'checked' : ''} ${cfg.available ? '' : 'disabled'}> If the Pi has no network at all for 3 minutes, start its own Wi-Fi</label>

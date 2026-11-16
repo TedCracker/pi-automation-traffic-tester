@@ -9,7 +9,6 @@ import { renderSniffer } from './sniffer.js';
 import { renderSettings } from './settings.js';
 import { renderAbout, maybeUpdatedBanner } from './about.js';
 import { updateBadge } from './update.js';
-import { initClaude, report } from './claude.js';
 import { initAiGuide, setScreen, refreshLive } from './aiguide.js';
 import { renderFirstBoot } from './firstboot.js';
 
@@ -27,7 +26,7 @@ theme(localStorage.getItem('tt-theme') || (matchMedia('(prefers-color-scheme: da
 $('#themeBtn').onclick = () => { theme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'); show(tab); };
 
 const TABS = ['setup', 'run', 'results', 'generator', 'sniffer', 'settings', 'about'];       // 'about' has no tab button: it opens from the version label and the top bar
-const tabOf = h => h === 'monitor' ? 'run' : TABS.includes(h) ? h : null;      // 'monitor' was its own tab once: old links and Ask Claude still land on the live screen
+const tabOf = h => h === 'monitor' ? 'run' : TABS.includes(h) ? h : null;      // 'monitor' was its own tab once: old links still land on the live screen
 
 export async function show(t) {
   t = tabOf(t) || 'setup';
@@ -44,23 +43,11 @@ export async function show(t) {
     else if (t === 'settings') await renderSettings(root);
     else if (t === 'about') await renderAbout(root);
     if (t !== 'results') S.openRun = null;
-    report(); updateBadge();
+    updateBadge();
   } catch (e) { if (e.message !== 'Password required') root.innerHTML = `<div class="card"><h2>Something went wrong</h2><p>${esc(e.message)}</p></div>`; }
 }
 $$('#tabs button').forEach(b => b.onclick = () => show(b.dataset.tab));
 window.addEventListener('hashchange', () => { const t = tabOf(location.hash.slice(1)); if (t && t !== tab) show(t); });   // browser Back / Forward and typed links
-
-// What "Ask Claude" can read about the screen (sent only while Claude Code is on): structured state plus the visible text.
-function snapshot() {
-  const p = S.sel, L = S.live;
-  return {
-    tab, profile_id: p ? p.id : null, profile_name: p ? p.name : null, profile_kind: p ? (p.kind || 'trip') : null,
-    wizard_step: S.wizard.step, unsaved_changes_to_profile: S.wizard.overrides,
-    running: !!L.running, running_run_id: L.running ? L.runId : null, link: L.link, last_event: L.lastEvent, finished: L.done ? { status: L.done.status, error: L.done.error || null } : null,
-    viewing_result_id: S.openRun || null, theme: document.documentElement.dataset.theme,
-    screen_text: (main.innerText || '').replace(/\n{3,}/g, '\n\n').slice(0, 3000),
-  };
-}
 
 function loginScreen() {
   main.innerHTML = `<div class="card" style="max-width:380px;margin:60px auto"><h2>Password</h2><p class="muted">This Pi Automation Traffic Tester is password-protected.</p>
@@ -106,7 +93,6 @@ async function start() {
   initAiGuide();
   $('#appVer').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); show('about'); });   // the version label opens About
   connectWS();
-  initClaude({ snapshot, nav: t => show(t), reload: () => show(tab), tab: () => tab });
   const h = location.hash.slice(1);
   const first = tabOf(h) || (st.run.running ? (st.run.kind === 'generator' ? 'generator' : st.run.kind === 'sniffer' ? 'sniffer' : 'run') : 'setup');
   if (st.run.running) { S.live.running = true; S.live.runId = st.run.run_id; S.live.thr = st.run.threshold_ms || 60; runDot(true); }

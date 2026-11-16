@@ -52,7 +52,7 @@ For a serial link, connect the two Pis with a null-modem cable and start with **
 ## Help
 
 - **Troubleshooting:** [INSTALL.md → Common problems](INSTALL.md#common-problems) and [docs/INSTALL-PI.md](docs/INSTALL-PI.md) (power, serial ports, sniffer wiring).
-- **In the app:** the **AI guide** link (top right) explains the current screen; the optional **Ask Claude** panel can answer questions about your tests.
+- **In the app:** the **AI guide** link (top right) explains the current screen. Any AI assistant can read it to help you.
 - **Bugs and questions:** open an *Issue* on the GitHub page of this project.
 
 ## More documentation

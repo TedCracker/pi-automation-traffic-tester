@@ -1630,7 +1630,20 @@ def firstboot(ctx: Ctx, country: str = "US") -> dict:
     return {"ok": True, "code": "firstboot", "message": "; ".join(notes), "own_wifi": bool(foreign)}
 
 
+def op_claude_cleanup(ctx: Ctx, req: dict) -> dict:
+    """Remove what the old 'Ask Claude' feature left on this Pi (see claude_cleanup.py). Safe to repeat."""
+    from . import claude_cleanup as cc
+    conf = read_conf(os.environ.get("TT_NET_CONF", SYSTEM_CONF))
+    app = conf.get("APP_DIR") or os.environ.get("TT_APP_DIR")
+    lines: List[str] = []
+    removed = cc.cleanup(ctx.data_dir or "", app, ctx.etc_dir, log=lines.append)
+    for ln in lines:
+        print(ln, file=sys.stderr)                                    # journal: journalctl -u traffic-tester-update
+    return {"ok": True, "removed": removed, "message": f"Removed {len(removed)} leftover(s) of the old Ask Claude feature." if removed else "Nothing to remove."}
+
+
 OPS: Dict[str, Callable[[Ctx, dict], dict]] = {
+    "claude_cleanup": op_claude_cleanup,
     "apply": op_apply, "keep": op_keep, "revert": lambda c, r: op_revert(c, r, "manual", True), "scan": op_scan, "fallback_ap": op_fallback_ap, "fallback_off": op_fallback_off,
     "set_name": op_set_name, "fallback_retry": op_fallback_retry, "fallback_done": op_fallback_done, "ensure_wifi": op_ensure_wifi, "set_fallback": op_set_fallback,
 }

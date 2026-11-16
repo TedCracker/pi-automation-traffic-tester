@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="mb.css">
 <link rel="stylesheet" href="newtest.css">
 <link rel="stylesheet" href="compare.css">
-<link rel="modulepreload" href="app.js"><link rel="modulepreload" href="ui.js"><link rel="modulepreload" href="state.js"><link rel="modulepreload" href="setup.js"><link rel="modulepreload" href="run.js"><link rel="modulepreload" href="monitor.js"><link rel="modulepreload" href="results.js"><link rel="modulepreload" href="generator.js"><link rel="modulepreload" href="sniffer.js"><link rel="modulepreload" href="settings.js"><link rel="modulepreload" href="claude.js"><link rel="modulepreload" href="aiguide.js"><link rel="modulepreload" href="update.js"><link rel="modulepreload" href="endpoints.js">
+<link rel="modulepreload" href="app.js"><link rel="modulepreload" href="ui.js"><link rel="modulepreload" href="state.js"><link rel="modulepreload" href="setup.js"><link rel="modulepreload" href="run.js"><link rel="modulepreload" href="monitor.js"><link rel="modulepreload" href="results.js"><link rel="modulepreload" href="generator.js"><link rel="modulepreload" href="sniffer.js"><link rel="modulepreload" href="settings.js"><link rel="modulepreload" href="aiguide.js"><link rel="modulepreload" href="update.js"><link rel="modulepreload" href="endpoints.js">
 </head>
 <body>
 <div id="shell">
@@ -36,11 +36,10 @@
   </nav>
   <div class="top-right">
     <a href="#about" id="aboutTop" class="ailink" data-testid="top-about" aria-label="About: version and what's new" title="Installed version, update status and what changed in each version">About</a>
-    <a href="/ai-guide" id="aiGuideTop" class="ailink" data-testid="top-ai-guide" aria-label="AI guide: instructions for AI assistants" title="A plain-text manual of this app for AI assistants (Tag Along, Claude, ChatGPT sidebars)">AI guide</a>
+    <a href="/ai-guide" id="aiGuideTop" class="ailink" data-testid="top-ai-guide" aria-label="AI guide: instructions for AI assistants" title="A plain-text manual of this app for AI assistants (browser AI assistants such as Tag Along or a ChatGPT sidebar)">AI guide</a>
     <a href="#settings" id="piName" class="chip" data-testid="top-pi-name" title="This Pi: tap for Settings"></a>
     <span id="userBox" class="userbox" hidden><span data-testid="top-signed-in">Signed in</span><a href="#" id="signOut" data-testid="top-sign-out" title="Sign out of this Pi on this browser">Sign out</a></span>
     <span id="conn" class="dot off" title="Live connection to this Pi"></span>
-    <button id="askBtn" data-testid="top-ask-claude" class="btn small ask" title="Ask Claude about this screen, your results, or change how the app works" aria-expanded="false" aria-controls="askPanel">✦ Ask Claude</button>
     <button id="themeBtn" data-testid="top-switch-theme" class="icon" title="Switch light / dark" aria-label="Switch theme">◐</button>
   </div>
 </header>
@@ -50,10 +49,6 @@
 </main>
 <footer id="about" class="about">Pi Automation Traffic Tester · built for the Raspberry Pi 5 · <span id="hw"></span> · <a href="#about" data-testid="foot-about">About</a> · <a href="/ai-guide" data-testid="foot-ai-guide" aria-label="AI guide: instructions for AI assistants">AI guide</a></footer>
 </div>
-<aside id="askPanel" aria-label="Ask Claude" hidden>
-  <div id="askHandle" role="separator" aria-orientation="vertical" aria-label="Drag to resize the Claude panel" tabindex="0" title="Drag to resize"></div>
-  <div class="ask-inner" id="askInner"></div>
-</aside>
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="modal" class="modal" hidden></div>
 <script src="vendor/uPlot.min.js"></script>

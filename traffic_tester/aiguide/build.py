@@ -1,6 +1,6 @@
 """Builds the AI guide document from the app's own registries (presets, routes, tabs, glossary) plus the hand-written content.py,
 and renders the live state and the compact per-page "For AI assistants" note. Read-only: it never changes state and never includes secrets
-(no tokens, password hashes, Wi-Fi keys, Claude credentials, MAC addresses)."""
+(no tokens, password hashes, Wi-Fi keys, MAC addresses)."""
 from __future__ import annotations
 
 import json
@@ -86,8 +86,29 @@ def _fmt_ms(v) -> str:
     return "n/a" if v is None else f"{v:.1f} ms"
 
 
+def run_digest(run: dict) -> dict:
+    """Compact, readable view of one finished run for the AI guide (not the raw per-message data)."""
+    s = run.get("summary") or {}
+    d = {"id": run["id"], "status": run["status"], "verdict": run.get("verdict"), "profile": {k: (run.get("profile") or {}).get(k) for k in ("name", "kind", "transport", "threshold_ms", "interval_ms", "duration_s")}, "started_at": run["started_at"], "error": s.get("error")}
+    kind = s.get("kind", "trip")
+    if kind == "generator":
+        d["totals"] = s.get("totals")
+        d["clocks"] = s.get("clocks")
+        d["reasons"] = (s.get("verdict") or {}).get("reasons")
+        d["streams"] = [{k: x.get(k) for k in ("name", "type", "direction", "size", "loss_pct", "lat_ms", "jitter_ms", "rtt_ms", "warnings")} | {"tx_mbps": x["tx"]["mbps"], "rx_mbps": x["rx"]["mbps"]} for x in s.get("streams", [])]
+    elif kind == "sniffer":
+        a = s.get("analysis") or {}
+        d["mode"] = s.get("mode")
+        d["stop_reason"] = s.get("stop_reason")
+        d["analysis"] = {k: a.get(k) for k in ("packets", "bytes", "duration_s", "protocols", "top_talkers", "errors", "crc_failures", "dnp3_frames", "modbus_frames", "max_gap_ms", "wifi_networks")}
+        d["engine"] = s.get("engine")
+    else:
+        d["metrics"] = {k: s.get(k) for k in ("sent", "received", "lost", "loss_pct", "over_threshold", "rtt_ms", "jitter_ms", "idle", "duplicates", "out_of_order", "corrupted", "one_way", "up_ms", "down_ms", "extra")}
+        d["reasons"] = (s.get("verdict") or {}).get("reasons")
+    return d
+
+
 def _run_summary_line(run: dict) -> str:
-    from ..claude.tools import run_digest
     d = run_digest(run)
     prof = d["profile"]
     s = run.get("summary") or {}
@@ -201,7 +222,6 @@ def live_facts(st, authed: bool = True) -> Dict[str, Any]:
     f["hardware"] = system.pi_model()
     f["unavailable"] = unavailable()
     f["password_enabled"] = bool(st.pw_hash())
-    f["claude_on"] = bool(st.cstate.enabled)
     f["session"] = (st.store.current_session() or {}).get("name")
     return f
 
@@ -268,7 +288,7 @@ def _live_section(f: Dict[str, Any]) -> Section:
     ifs = [i for i in f["interfaces"] if not i["name"].startswith(("br-", "docker", "veth"))]
     s.p("Network interfaces seen: " + (", ".join(f"{i['name']} ({'wired' if i['wired'] else 'wireless/virtual'}, {'up' if i['up'] else 'down'})" for i in ifs[:8]) or "none") + f". USB drives plugged in: {f['usb_drives']}.")
     hw = f["hardware"]
-    s.p("Hardware: " + (hw["model"] if hw.get("model") else "not a Raspberry Pi (development PC)") + f". Web password: {'set' if f['password_enabled'] else 'not set'}. Claude Code (optional Ask Claude): {'on' if f['claude_on'] else 'off (not needed; the tester works without it)'}.")
+    s.p("Hardware: " + (hw["model"] if hw.get("model") else "not a Raspberry Pi (development PC)") + f". Web password: {'set' if f['password_enabled'] else 'not set'}..")
     un = f["unavailable"]
     if un:
         s.p("NOT available on this install (and why):")
@@ -354,7 +374,7 @@ def build_doc(st, app, authed: bool = True) -> Doc:
     a.p("Pis have names (default: the host name, e.g. pi1, pi2; changed in Settings). They find each other on the network by themselves, or you add one by its IP address; the list is the tick list under 'To' on the New test page (and the From / To lists of the Generator). A serial port or a raw Ethernet port can only do one thing at a time, so it is claimed per test, and a clear 'busy' message appears if it is in use.")
     a.ul([K.KIND_ABOUT[k] for k in profile_kinds()])
     a.p("Link types for trip tests: " + "; ".join(K.TRANSPORT_ABOUT[t] for t in transports() if t not in ("generator", "sniffer")) + ".")
-    a.p(f"The app runs in a browser. There are {len(tab_labels())} screens (tabs along the top): " + ", ".join(f'"{l}"' for _, l in tab_labels()) + ". Data is kept on the Pi; nothing is sent to the internet. Claude Code (the 'Ask Claude' panel) is an optional extra.")
+    a.p(f"The app runs in a browser. There are {len(tab_labels())} screens (tabs along the top): " + ", ".join(f'"{l}"' for _, l in tab_labels()) + ". Data is kept on the Pi; nothing is sent to the internet.")
     doc.add(_live_section(facts))
     # quick start: the essentials, early, for readers that cut the page
     qs = doc.add(Section("quickstart", "3. Quick start (the essentials)"))

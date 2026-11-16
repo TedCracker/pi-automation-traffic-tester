@@ -140,11 +140,10 @@ def test_no_secrets_anywhere(app_a):
     st.store.set_setting("wifi_psk", "PSK-SECRET-123")
     gp = P.validate_profile({"name": "has pw", "kind": "generator", "gen": {"peer_password": "PeerSecret-99", "streams": [{"name": "s"}]}})
     st.store.create_profile(gp)
-    st.cstate.enabled        # touch
     blobs = [c.get(p).text for p in ("/ai-guide", "/ai-guide.txt", "/llms.txt", "/api/ai-context", "/")]
     blobs.append(text_of(app) + to_html(B.build_doc(st, app, True)))
     pw_hash = st.pw_hash()
-    bad = [pw_hash, pw_hash.split(":")[1], st.ctoken, "Zebra-Quartz-77", "PSK-SECRET-123", "PeerSecret-99", st.secret.hex(), "sk-ant", "oauth", "refresh_token", "BEGIN PRIVATE KEY"]
+    bad = [pw_hash, pw_hash.split(":")[1], "Zebra-Quartz-77", "PSK-SECRET-123", "PeerSecret-99", st.secret.hex(), "sk-ant", "oauth", "refresh_token", "BEGIN PRIVATE KEY"]
     for b in blobs:
         for s in bad:
             assert s.lower() not in b.lower(), s

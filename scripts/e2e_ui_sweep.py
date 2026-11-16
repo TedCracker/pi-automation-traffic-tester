@@ -52,7 +52,7 @@ try:
     for r, nm in (("A", "pi1"), ("B", "pi2")):
         http(PORTS[r], "PUT", "/api/pi", {"name": nm})
     GETS = ["/api/status", "/api/time", "/api/ports", "/api/profiles", "/api/sessions", "/api/runs", "/api/usb", "/api/net/check", "/api/netem-presets", "/api/sniff/filters",
-            "/api/gen/node/status", "/api/wifi/builtin/status", "/api/claude/status", "/api/profiles/export"]
+            "/api/gen/node/status", "/api/wifi/builtin/status", "/api/profiles/export"]
     with sync_playwright() as pw:
         br = pw.chromium.launch()
         for role in ("A", "B"):
@@ -67,7 +67,7 @@ try:
             pdf422 = http(P, "GET", "/api/report.pdf", raw=True)[0]
             check(f"{tag}every read endpoint answers 200 ({len(GETS)} checked); the PDF endpoint without run ids says 422, not a crash", not bad and pdf422 == 422, f"{bad} pdf={pdf422}")
             code, html = http(P, "GET", "/", raw=True)
-            assets = [a for a in ("app.js", "ui.js", "state.js", "endpoints.js", "setup.js", "run.js", "monitor.js", "results.js", "generator.js", "sniffer.js", "settings.js", "claude.js", "style.css") if http(P, "GET", f"/{a}", raw=True)[0] != 200] + [a for a in ("vendor/uPlot.min.js", "vendor/uPlot.min.css") if http(P, "GET", f"/{a}", raw=True)[0] != 200]
+            assets = [a for a in ("app.js", "ui.js", "state.js", "endpoints.js", "setup.js", "run.js", "monitor.js", "results.js", "generator.js", "sniffer.js", "settings.js", "style.css") if http(P, "GET", f"/{a}", raw=True)[0] != 200] + [a for a in ("vendor/uPlot.min.js", "vendor/uPlot.min.css") if http(P, "GET", f"/{a}", raw=True)[0] != 200]
             check(f"{tag}web page and all static files are served (title, no missing asset)", code == 200 and b"Pi Automation Traffic Tester" in html and not assets, f"missing={assets}")
             ctx = br.new_context(viewport={"width": 1280, "height": 860}); pg = ctx.new_page()
             errs = []

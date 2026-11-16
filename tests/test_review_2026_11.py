@@ -15,8 +15,6 @@ from traffic_tester.server import create_app
 from traffic_tester.store import Store
 from traffic_tester.transports import TcpTransport, Transport, UdpTransport
 
-from test_claude import app, chat, enable, env  # noqa: F401  (fixtures: the app with a stub Claude CLI)
-
 
 @pytest.fixture()
 def client():
@@ -26,28 +24,6 @@ def client():
 
 def free_port():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
-
-
-# R1 -- "Apply" / "Undo" of a Claude change crashed in production: server.py used threading.Timer without importing threading
-def test_r1_apply_and_undo_schedule_the_restart(app, monkeypatch):  # noqa: F811
-    timers, real_timer = [], threading.Timer
-
-    class NoExit:
-        def start(self): pass
-        def cancel(self): pass
-
-    def fake_timer(delay, fn, *a, **k):          # only the 1.5 s "restart the app" timer is caught; every other timer is real
-        if delay == 1.5:
-            timers.append(delay); return NoExit()
-        return real_timer(delay, fn, *a, **k)
-    monkeypatch.setattr(threading, "Timer", fake_timer)
-    monkeypatch.setenv("TT_RESTART_ON_APPLY", "1")                    # what the installed service runs with
-    enable(app)
-    chat(app, "scenario:feature")
-    r = app.post("/api/claude/changes/apply", json={"message": "Add file"})
-    assert r.status_code == 200 and r.json()["restarting"] is True and len(timers) == 1
-    h = app.get("/api/claude/history").json()
-    assert app.post("/api/claude/changes/revert", json={"commit": h[0]["commit"]}).status_code == 200 and len(timers) == 2
 
 
 # R2 -- the clock check (chronyc) ran on the timing threads every 5 s and delayed that one echo: a periodic fake latency spike
@@ -260,39 +236,6 @@ def test_r11_static_assets_are_gzipped_but_the_api_is_not(client):
     assert client.get("/api/status", headers={"Accept-Encoding": "gzip"}).headers.get("content-encoding") is None
     html = client.get("/").text
     assert 'rel="modulepreload"' in html
-
-
-# R12 -- Claude's change check looked only at the NEW name of a moved file: moving a safety file out of traffic_tester/claude/ was not blocked
-def test_r12_moving_or_oddly_naming_a_protected_file_is_blocked(tmp_path):
-    import subprocess
-    from traffic_tester.claude.workspace import Workspace, WorkspaceError
-    live, work = tmp_path / "live", tmp_path / "ws" / "work"
-    (live / "traffic_tester" / "claude").mkdir(parents=True)
-    (live / "traffic_tester" / "claude" / "tools.py").write_text("SAFE = True\n" * 30)
-    (live / "README.md").write_text("app\n")
-    ws = Workspace(str(live), str(work))
-    ws.ensure()
-    os.rename(work / "traffic_tester" / "claude" / "tools.py", work / "moved_tools.py")          # a move = the protected file is gone
-    (work / "traffic_tester" / "claude" / "é vil.py").write_text("x = 1\n")                        # git would quote this name
-    d = ws.diff()
-    assert "traffic_tester/claude/tools.py" in d["blocked"] and "traffic_tester/claude/é vil.py" in d["blocked"], d["files"]
-    with pytest.raises(WorkspaceError, match="keep Claude Code safe"):
-        ws.apply("move it")
-    assert (live / "traffic_tester" / "claude" / "tools.py").exists()
-    assert subprocess.run(["git", "status", "--porcelain"], cwd=live, capture_output=True, text=True).stdout.strip() == ""
-
-
-# R13 -- Ask Claude's "open_screen" still offered the removed Monitor tab; the old name must land on Run
-def test_r13_open_screen_maps_the_old_monitor_tab_to_run():
-    from traffic_tester.claude.tools import ToolBox, TOOL_SPECS
-
-    class St:
-        sent = []
-        def push_ui(self, ev): self.sent.append(ev)
-    st = St()
-    assert ToolBox(st).open_screen("monitor") == {"ok": True, "opened": "run"} and st.sent[-1]["tab"] == "run"
-    assert "error" in ToolBox(st).open_screen("nowhere")
-    assert "monitor" not in next(t for t in TOOL_SPECS if t["name"] == "open_screen")["description"]
 
 
 # R14 -- "permission missing" messages ended with "The installed service has it.": read as "it is available" (a small AI model answered

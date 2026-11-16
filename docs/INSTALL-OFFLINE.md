@@ -52,26 +52,9 @@ You need: the Pi powered and booted, one Ethernet cable (laptop to Pi, direct; a
 Notes: the built-in Wi-Fi sniffing (Nexmon) is installed automatically on a **Pi 5** whose kernel is in the package (`ls nexmon/modules`); on a Pi 4 or another kernel use a USB Wi-Fi adapter. Remove the tester: `sudo /opt/traffic-tester/install-pi.sh --uninstall`.
 
 ## Wi-Fi and Ethernet: who does what
-**Fresh install:** Wi-Fi = the Pi's own access point (you reach the Pi with a phone or laptop at `http://10.42.0.1:8080`); Ethernet = DHCP client for internet (updates, Claude) and for testing. **Existing install** (you ran an older installer before): nothing changes by itself; the Pi keeps the Wi-Fi it has (so a Pi you reach over Wi-Fi never drops off), and Ethernet test ports stay "never the default route".
+**Fresh install:** Wi-Fi = the Pi's own access point (you reach the Pi with a phone or laptop at `http://10.42.0.1:8080`); Ethernet = DHCP client for internet (updates) and for testing. **Existing install** (you ran an older installer before): nothing changes by itself; the Pi keeps the Wi-Fi it has (so a Pi you reach over Wi-Fi never drops off), and Ethernet test ports stay "never the default route".
 Change any of it in the app: **Settings, Network**: Wi-Fi = access point / join a Wi-Fi network / off; each Ethernet port = DHCP or static address, optional VLAN, label *Internet*, *Test* or both. A change that affects the connection you are using asks to confirm and then undoes itself after 90 seconds unless you press **Keep**. If the Pi has no network at all for 3 minutes it starts its own Wi-Fi so you can always get back in. The older check is still there: `python3 -m traffic_tester.netcheck`. If the Pi has no internet nothing is wrong: the tester works fully offline.
-Put the Pi on the site's Wi-Fi (only needed for Claude): Settings, Network, *Join a Wi-Fi network*, or `sudo nmcli device wifi connect "<SSID>" password "<password>"`.
-
-## Claude Code (optional, off by default; the tester never needs it)
-Claude Code is **not** in the package (Anthropic's licence does not allow redistributing it, and it must stay current). It is installed once when the Pi has Wi-Fi internet:
-1. On the Pi: `sudo /opt/traffic-tester/install-pi.sh --with-claude`. It adds Anthropic's signed repository (the key fingerprint is checked) and installs `claude-code`. Nothing is signed in yet.
-2. **Sign in once, yourself, with your Claude Max account** (no API key): in the web app, **Settings, Web password**, set a password (sign-in is refused without one). Then **Ask Claude** (top right), **Log in**. The app shows a link: open it on your phone or PC, approve, copy the code it shows, paste it into the app, **Finish sign-in**.
-3. **Remote Control** (use the Pi's Claude from your phone or the Claude app): **Settings, Claude Code, Start Remote Control**; then open the Claude app or claude.ai/code and pick "Pi Automation Traffic Tester <name>". Needs Wi-Fi internet. Stop it the same way. It is off until you start it.
-4. **SSH from your own PC** into the Pi (so Claude Code on the PC can work on it): see "SSH from your Windows PC" in `docs/INSTALL-PI.md` (key setup, `ssh pi-tt`).
-
-### Turn Claude off before you leave the Pi at a customer
-**Ask Claude, gear icon, Log out** (or **Settings, Claude Code, Log out and turn off**; no password needed). It signs out, deletes the saved sign-in and chats, stops Remote Control, switches Ask Claude off (the server refuses every Claude request) and scans the Pi for leftover tokens. It must show "No saved sign-in was found on this Pi". The test gear keeps working. To use Claude again later: sign in again with the one-time link and code (step 2).
-
-### How to use the Ask Claude sidebar
-- **Open/close:** the button **Ask Claude** at the top right. **Resize:** drag the thin bar at its left edge (the page on the left stays usable; the width is remembered).
-- **It can read:** the screen you are looking at (tab, selected test, settings, live numbers), recent results and the app log.
-- **It can do:** open tabs, start and stop tests, save a profile. Every action shows as a line in the chat and the screen on the left updates.
-- **It can suggest app changes:** you see the exact change and press Apply or Discard; every applied change can be undone.
-- **It never** runs commands on the Pi or touches a running test. No Wi-Fi internet or not signed in: it says so in plain words. Logged out: the sidebar only shows "Claude Code is off" and a Log in button.
+Put the Pi on the site's Wi-Fi (only needed for online software updates): Settings, Network, *Join a Wi-Fi network*, or `sudo nmcli device wifi connect "<SSID>" password "<password>"`.
 
 ## If something fails
 - Copy problems: use the same cable, try `scp` again; verify with `sha256sum` on the Pi against `SHA256SUMS.txt`.

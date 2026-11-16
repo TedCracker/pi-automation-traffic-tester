@@ -206,10 +206,9 @@ class Fake:
 def install(monkeypatch):
     root = tempfile.mkdtemp()
     app = os.path.join(root, "app"); data = os.path.join(root, "data")
-    os.makedirs(f"{app}/traffic_tester"); os.makedirs(f"{app}/.git"); os.makedirs(data)
+    os.makedirs(f"{app}/traffic_tester"); os.makedirs(data)
     open(f"{app}/traffic_tester/__init__.py", "w").write('__version__ = "1.0.0"\n')
     open(f"{app}/traffic_tester/main.txt", "w").write("code 1.0.0")
-    open(f"{app}/.git/HEAD", "w").write("ref: refs/heads/master\n")
     open(f"{data}/traffic-tester.db", "w").write("MY SAVED TESTS")
     lay = H.Layout(mode="user", app_dir=app, data_dir=data, state_dir=f"{root}/state", work_dir=f"{root}/work", pubkey=PUB, health_seconds=0.2)
     return lay, root
@@ -222,7 +221,7 @@ def test_update_swaps_keeps_previous_and_never_touches_data(install):
     assert r["state"] == "ok" and r["to_version"] == "1.1.0" and r["from_version"] == "1.0.0"
     assert open(f"{lay.app_dir}/traffic_tester/main.txt").read() == "code 1.1.0"
     assert open(f"{lay.prev_dir}/traffic_tester/main.txt").read() == "code 1.0.0"      # the old app is kept
-    assert os.path.exists(f"{lay.app_dir}/.git/HEAD")                                   # the approved-changes history survives
+    assert not os.path.exists(f"{lay.app_dir}/.git")                                    # no git history of app changes is kept any more (Ask Claude is gone)
     assert open(f"{lay.data_dir}/traffic-tester.db").read() == "MY SAVED TESTS"
     assert f.calls[:2] == ["stop", "start"] and "health:1.1.0" in f.calls
     assert H.read_status(lay.state_dir)["state"] == "ok" and not os.path.exists(lay.app_dir + ".new") and not os.path.exists(lay.work_dir)

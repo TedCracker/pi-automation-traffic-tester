@@ -156,7 +156,6 @@ canvas.bits{width:100%;height:190px;display:block;background:var(--panel2);borde
 @media(max-width:620px){
   .link{gap:0}.node{min-width:0;padding:10px 12px;font-size:.85rem}.wire{min-width:24px;max-width:none}.lane[data-l]::before{display:none}
   .top{overflow:hidden}
-  .ask-label{display:none}
   .card{padding:14px}
   .banner .big{font-size:1.8rem}
 }
@@ -165,61 +164,9 @@ canvas.bits{width:100%;height:190px;display:block;background:var(--panel2);borde
 .about{max-width:1180px;margin:0 auto;padding:0 20px 28px;color:var(--muted);font-size:.78rem;text-align:center}
 .g4w{grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))}
 
-/* ---------- Ask Claude: resizable right sidebar (the main screen stays usable on the left) ---------- */
-.btn.ask{border-color:var(--accent);color:var(--accent);background:var(--accent-soft);white-space:nowrap}
-.btn.ask[aria-expanded=true]{background:var(--accent);color:var(--accent-ink)}
-body.ask-open{display:flex;height:100vh;overflow:hidden}
-body.ask-open #shell{flex:1 1 0;min-width:0;overflow:auto}
-#askPanel{position:relative;flex:0 0 var(--ask-w,380px);width:var(--ask-w,380px);min-width:280px;max-width:80vw;background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;height:100vh;z-index:30}
-#askPanel[hidden]{display:none}
-#askHandle{position:absolute;left:-5px;top:0;bottom:0;width:10px;cursor:col-resize;z-index:5;touch-action:none}
-#askHandle::after{content:"";position:absolute;left:4px;top:50%;width:3px;height:44px;margin-top:-22px;border-radius:3px;background:var(--line)}
-#askHandle:hover::after,#askHandle:focus::after,body.ask-resizing #askHandle::after{background:var(--accent)}
-body.ask-resizing{user-select:none;cursor:col-resize}
-.ask-inner{display:flex;flex-direction:column;height:100%;min-height:0}
-.ask-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}
-.ask-head b{flex:1}
-.ask-head .btn{padding:4px 10px}
-.ask-body{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;min-height:0}
-.ask-foot{border-top:1px solid var(--line);padding:10px 12px;display:flex;gap:8px;align-items:flex-end}
-.ask-foot textarea{flex:1;resize:none;min-height:42px;max-height:140px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
-.ask-foot textarea:focus{outline:2px solid var(--accent)}
-.ask-foot .btn{padding:10px 14px}
-.msg{max-width:94%;padding:9px 12px;border-radius:12px;font-size:.92rem;white-space:pre-wrap;word-wrap:break-word}
-.msg.user{align-self:flex-end;background:var(--accent);color:var(--accent-ink);border-bottom-right-radius:3px}
-.msg.bot{align-self:flex-start;background:var(--panel2);border:1px solid var(--line);border-bottom-left-radius:3px}
-.msg.err{align-self:stretch;background:var(--warn-soft);color:var(--text);border:1px solid var(--warn);max-width:100%}
-.msg.note{align-self:center;color:var(--muted);background:transparent;font-size:.8rem;padding:2px}
-.act{align-self:stretch;border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--panel);border-radius:8px;padding:6px 10px;font-size:.82rem;display:flex;gap:8px;align-items:flex-start}
-.act .ai{flex:none;width:16px;text-align:center}
-.act b{font-weight:700}
-.act .res{color:var(--muted);display:block;word-break:break-word}
-.act.ok{border-left-color:var(--pass)}.act.bad{border-left-color:var(--fail)}.act.wait .ai{animation:pulse 1s infinite}
-.chg{align-self:stretch;border:1px solid var(--warn);background:var(--warn-soft);border-radius:10px;padding:10px 12px;font-size:.86rem}
-.chg pre{max-height:240px;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px;font-size:.74rem;line-height:1.35;margin:8px 0;white-space:pre}
-.chg pre .a{color:var(--pass)}.chg pre .d{color:var(--fail)}.chg pre .h{color:var(--muted)}
-.typing{color:var(--muted);font-size:.82rem;align-self:flex-start}
-.ask-off{padding:18px;text-align:center;display:flex;flex-direction:column;gap:10px;align-items:center}
-.ask-off h3{font-size:1.1rem}
-.ask-login{padding:0 14px 14px;display:flex;flex-direction:column;gap:10px}
-.ask-login input{padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);width:100%}
-.ask-login .url{word-break:break-all;font-size:.8rem;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px}
-@media(max-width:700px){
-  body.ask-open{display:block;height:auto;overflow:auto}
-  #askPanel{position:fixed;right:0;top:0;width:100vw!important;max-width:100vw;min-width:0;flex:none}
-  #askHandle{display:none}
-}
 .kv{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;font-size:.92rem}
 .kv dt{color:var(--muted)}.kv dd{margin:0}
 .fixbox{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.8rem;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 8px;margin-top:4px;white-space:pre-wrap;display:block}
-/* with the sidebar open the header wraps (tabs on their own row) so nothing is clipped */
-body.ask-open .top{flex-wrap:wrap;gap:8px 12px;padding:8px 14px}
-body.ask-open nav{order:3;flex:1 0 100%;justify-content:flex-start;overflow-x:auto}
-body.ask-open nav button{padding:8px 12px;font-size:.9rem}
-body.ask-open .top-right{margin-left:auto}
-body.ask-open main{padding:18px 16px 50px}
-.act>div{min-width:0;word-break:break-word}
-.act b+*{word-break:break-all}
 
 /* ---------- AI guide: compact "For AI assistants" note (first in the page source, shown last) ---------- */
 #content{display:flex;flex-direction:column}
@@ -253,7 +200,7 @@ a.btn{text-decoration:none;display:inline-block}
 /* =====================================================================================================================
    2026-11 MOBILE: phones (portrait + landscape) and tablets.
    "Compact" = width <= 820 px, or a landscape phone (height <= 480 px, width <= 1000 px). There the six tabs become a fixed bottom
-   bar, the header scrolls away, the Start/Stop bar sticks above the tab bar, dialogs become bottom sheets and Ask Claude is full screen.
+   bar, the header scrolls away, the Start/Stop bar sticks above the tab bar, dialogs become bottom sheets and dialogs fill the screen width.
    "Touch" = compact or any coarse pointer (a tablet in landscape): tap targets >= 44 px, form text >= 16 px (iOS zooms smaller).
    Desktop (>= ~1000 px, mouse) is untouched.
    ===================================================================================================================== */
@@ -267,7 +214,7 @@ img,svg,canvas,video{max-width:100%}
 @media (pointer:coarse),(max-width:820px),(max-height:480px) and (max-width:1000px){
   button,.btn,a.btn{min-height:44px;min-width:44px}
   button,a,summary,label,select,[role=button],[role=tab],tr[data-run]{touch-action:manipulation}      /* no 300 ms double-tap-zoom wait on taps */
-  .btn.small,.btn.ask{padding:8px 14px;font-size:.9rem}
+  .btn.small{padding:8px 14px;font-size:.9rem}
   .icon{width:44px;height:44px;font-size:1.1rem}
   select,textarea,input:not([type=checkbox]):not([type=radio]):not([type=file]){min-height:44px;font-size:16px}
   input[type=file]{min-height:44px;font-size:16px;padding:9px 0;max-width:100%}
@@ -287,15 +234,12 @@ img,svg,canvas,video{max-width:100%}
   .pcard .acts{gap:0 6px}
   .pcard .acts .btn{min-height:44px;padding:0 8px;display:inline-flex;align-items:center;font-size:.88rem}
   .step{min-height:48px}
-  #askHandle{width:44px;left:-22px}
-  #askHandle::after{left:20px}
   .tip{flex:none;width:44px;height:44px;margin:-14px;background:radial-gradient(circle,var(--panel2) 0 7.5px,var(--line) 8px 9px,transparent 9.5px);border:0;border-radius:50%;font-size:.75rem}
   .tip:hover::after,.tip:focus::after{position:fixed;left:12px;right:12px;bottom:calc(var(--navh,0px) + 76px);transform:none;width:auto;max-width:none;font-size:.88rem}
-  a.ailink,.about a,.ai-ctx a,.brand,main a:not(.btn),#askPanel a,#signOut{display:inline-flex;align-items:center;min-height:44px}
+  a.ailink,.about a,.ai-ctx a,.brand,main a:not(.btn),#signOut{display:inline-flex;align-items:center;min-height:44px}
   #signOut{min-width:44px;justify-content:center}
   #piName{display:inline-flex;align-items:center;min-height:44px;min-width:44px;justify-content:center}
   a.ailink{min-width:44px;justify-content:center}
-  .ask-login .url{display:flex;align-items:center}
   .ai-ctx a,.about a{padding:0 4px}
   tr.click td,tr[data-run] td{padding-top:12px;padding-bottom:12px}
 }
@@ -313,14 +257,11 @@ img,svg,canvas,video{max-width:100%}
   .brand{order:1;flex:1 1 auto;min-width:0;gap:8px}
   .brand b{font-size:.9rem}.brand svg{width:24px;height:24px}
   .appver{font-size:.64rem}
-  #askBtn{padding:0 10px;font-size:.85rem}
-  #askBtn{order:2}
   .top::after{content:"";order:3;flex:1 0 100%;height:0}
   #piName{order:4;max-width:none;flex:1 1 0;min-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;line-height:44px;padding-top:0;padding-bottom:0;box-sizing:border-box;height:44px}
   #userBox{order:4;flex:none}
   #conn{order:5;width:12px;height:12px}
   #aboutTop{order:6}#aiGuideTop{order:6}.icon#themeBtn{order:7}
-  .ask-label{display:none}
 
   /* ---- bottom tab bar ---- */
   nav#tabs{position:fixed;left:0;right:0;bottom:0;top:auto;z-index:40;order:0;flex:none;margin:0;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:0;overflow:visible;justify-content:stretch;
@@ -385,7 +326,7 @@ img,svg,canvas,video{max-width:100%}
 @media (min-width:600px) and (max-width:820px),(max-height:480px) and (max-width:1000px){
   .top::after{display:none}
   .brand{flex:0 0 auto}
-  #piName{order:2}#userBox{order:2}#conn{order:3}#aboutTop{order:4}#aiGuideTop{order:4}#askBtn{order:5}.icon#themeBtn{order:6}
+  #piName{order:2}#userBox{order:2}#conn{order:3}#aboutTop{order:4}#aiGuideTop{order:4}.icon#themeBtn{order:6}
 }
 
 /* landscape phone: a slimmer tab bar (icon left of the label) so the page keeps its height */
@@ -403,25 +344,6 @@ img,svg,canvas,video{max-width:100%}
   #toast{bottom:calc(var(--navh) + 60px)}
 }
 
-/* Ask Claude: full screen on a phone (a sidebar from 701 px up) */
-@media (max-width:700px),(max-height:480px) and (max-width:1000px){
-  body.ask-open{display:block;height:auto;overflow:hidden}
-  #askPanel{position:fixed;inset:0;width:100vw!important;max-width:100vw;min-width:0;height:100vh;height:var(--vvh,100dvh);flex:none;z-index:60;border-left:0;padding-top:env(safe-area-inset-top,0px)}
-  #askHandle{display:none}
-  .ask-head{padding:8px max(12px,env(safe-area-inset-right)) 8px max(12px,env(safe-area-inset-left));gap:8px}
-  .ask-head b{white-space:nowrap;font-size:.95rem}
-  .ask-head .btn{padding:0 10px}
-  #askClose{min-width:44px}
-  .ask-body{padding:12px max(12px,env(safe-area-inset-right)) 12px max(12px,env(safe-area-inset-left))}
-  .ask-foot{padding:10px max(12px,env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left))}
-  .ask-foot textarea{font-size:16px;min-height:44px}
-  .ask-foot .btn{min-width:72px}
-  .ask-login input{font-size:16px;min-height:44px}
-  .msg{max-width:100%;font-size:1rem}
-}
-@media (min-width:701px) and (max-width:820px){
-  body.ask-open nav#tabs{right:var(--ask-w,380px)}
-}
 
 /* ---- Create custom test (Setup): entry card + guided form ---- */
 .ccard{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:6px;text-align:left;font:inherit;color:var(--text);cursor:pointer;border:2px dashed var(--accent);background:var(--accent-soft);border-radius:var(--r);padding:14px 16px;min-height:120px}
@@ -554,7 +476,7 @@ table.steps .stepmark { font-size: 1.15rem; text-align: center; }
 [data-testid="steps-result"] .bad, table.steps .bad { color: var(--fail); font-weight: 700; }
 
 /* first boot (card image): one big screen, no navigation */
-body.fb nav#tabs,body.fb .top-right,body.fb footer#about,body.fb #aiContext,body.fb #askBtn{display:none!important}
+body.fb nav#tabs,body.fb .top-right,body.fb footer#about,body.fb #aiContext{display:none!important}
 .fb-card{max-width:520px;margin:28px auto;padding:26px 22px}
 .fb-title{font-size:1.9rem;line-height:1.2;margin:0 0 10px}
 .fb-name{color:var(--accent)}

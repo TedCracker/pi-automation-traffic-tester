@@ -150,31 +150,6 @@ def http_health(lay: Layout, expect_version: str, seconds: Optional[float] = Non
         time.sleep(1.0)
 
 
-def _chown_tree(lay: Layout, path: str) -> None:
-    """System install: the service user owns the app (so approved Claude changes can be applied), EXCEPT the parts that keep Claude Code safe."""
-    if lay.mode != "system" or not lay.svc_user:
-        return
-    _run(["chown", "-R", f"{lay.svc_user}:{lay.svc_user}", path])
-    for sub in ("traffic_tester/claude", "scripts"):
-        p = os.path.join(path, sub)
-        if os.path.exists(p):
-            _run(["chown", "-R", "root:root", p])
-            _run(["chmod", "-R", "go-w", p])
-
-
-def _git_record(lay: Layout, version: str) -> None:
-    app = lay.app_dir
-    if not os.path.isdir(os.path.join(app, ".git")) or not shutil.which("git"):
-        return
-    pre = ["runuser", "-u", lay.svc_user, "--"] if lay.mode == "system" and lay.svc_user and shutil.which("runuser") else []
-    g = pre + ["git", "-c", f"safe.directory={app}", "-c", "user.name=Pi Automation Traffic Tester (update)", "-c", "user.email=update@localhost"]
-    try:
-        _run(g + ["add", "-A"], cwd=app)
-        _run(g + ["commit", "-q", "-m", f"Software update to {version}"], cwd=app)
-    except Exception:
-        pass                                    # the record is a convenience; the update itself is done
-
-
 def _need_packages(lay: Layout, req_file: str) -> Optional[bool]:
     """True = new packages are needed, False = the venv already satisfies the requirements, None = cannot tell."""
     if not lay.venv_python or not os.path.isfile(req_file):
@@ -274,13 +249,6 @@ def apply_update(lay: Layout, bundle_path: str, allow_older: bool = False, *, re
         st.update(phase="staging", message="Preparing the new version…")
         _rm(new_dir)
         shutil.copytree(os.path.join(stage, "app"), new_dir)
-        for keep in (".git", ".gitignore"):                    # the history of approved Claude changes survives updates
-            s = os.path.join(lay.app_dir, keep)
-            if os.path.isdir(s):
-                shutil.copytree(s, os.path.join(new_dir, keep), symlinks=True)
-            elif os.path.isfile(s):
-                shutil.copy2(s, os.path.join(new_dir, keep))
-        _chown_tree(lay, new_dir)
     except Refused as e:
         _rm(new_dir)
         shutil.rmtree(lay.work_dir, ignore_errors=True)
@@ -314,7 +282,6 @@ def apply_update(lay: Layout, bundle_path: str, allow_older: bool = False, *, re
         return _roll_back(lay, st, cur, restart, health, reason=err, to=to, new_dir=new_dir)
     # --- success
     _refresh_extras(lay, stage)
-    _git_record(lay, to)
     shutil.rmtree(lay.work_dir, ignore_errors=True)
     st.update(state="ok", phase="done", to_version=to, message=f"Updated to version {to}. The previous version ({cur}) is kept for \"Roll back\".")
     return st.d
@@ -327,7 +294,7 @@ def _refresh_extras(lay: Layout, stage: str) -> None:
     try:
         base = os.path.dirname(os.path.abspath(lay.app_dir))
         ex = os.path.join(stage, "extra")
-        for name in ("install-pi.sh", "install-wifi-nexmon.sh", "install-claude.sh"):
+        for name in ("install-pi.sh", "install-wifi-nexmon.sh"):
             s, d = os.path.join(ex, name), os.path.join(base, name)
             if os.path.isfile(s) and os.path.isfile(d):
                 shutil.copyfile(s, d + ".new")
@@ -421,7 +388,6 @@ def rollback(lay: Layout, *, restart: Optional[Callable[[str], None]] = None, he
         st.update(state="rolled_back" if not ok2 else "failed", phase="done",
                   message=f"Version {prev} did not start properly ({bad}). Kept version {cur}." if not ok2 else f"Version {prev} did not start ({bad}) and {cur} did not answer afterwards ({ok2}).")
         return st.d
-    _git_record(lay, prev)
     st.update(state="ok", phase="done", message=f"Rolled back to version {prev}. Version {cur} is kept: press the button again to go forward.")
     return st.d
 
