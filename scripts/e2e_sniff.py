@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Sniffer e2e with REAL tools (dumpcap, tshark, ip bridge) inside the Debian Bookworm test container (scripts/e2e-sniff.sh).
-The app runs as an unprivileged user with ambient CAP_NET_RAW/CAP_NET_ADMIN (never root). Prints CHECK lines for checks.md."""
+The app runs as an unprivileged user with ambient CAP_NET_RAW/CAP_NET_ADMIN (never root). Prints CHECK lines for docs/dev/checks.md."""
 import json, os, re, shutil, signal, struct, subprocess, sys, tempfile, time, urllib.request, urllib.error
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -4,6 +4,7 @@
 import { mbFieldsHtml, parseMb, putMb, MB_TYPES } from './mbsettings.js';
 import { $, $$, esc, api, tip, dur, bindOnce, TRANSPORT_NAMES } from './ui.js';
 import { S } from './state.js';
+import { radioErrors } from './radioui.js';
 import { mountEndpoints, directionReason, normalizeEndpoints } from './endpoints.js';
 
 const LINKS = [
@@ -33,8 +34,17 @@ function uiFrom(p) {
   const s = p.duration_s, unit = s % 3600 === 0 ? 'hours' : s % 60 === 0 ? 'minutes' : 'seconds';
   return { rate: p.interval_ms, rateUnit: 'ms', len: s / UNIT_S[unit], lenUnit: unit, gaps: (p.idle_gaps_s || []).join(', '), port: '' };
 }
+// Default speed of a serial test: 19200 for the plain trip test, 38400 for Mirrored Bits mode (real Pis: p50 bit transfer 2.7 ms vs 5.7 ms at 9600, docs/e2e-real-pis-serial.md).
+// Only a draft whose speed nobody has set yet (c.baudSet) follows the mode: saved tests, presets and a speed the user picked keep theirs.
+export const MB_SERIAL_BAUD = 38400, SERIAL_BAUD = 19200;
+function followModeBaud(c) {
+  const p = c.p;
+  if (c.baudSet || p.transport !== 'serial' || ![SERIAL_BAUD, MB_SERIAL_BAUD].includes(p.serial.baud)) return;
+  p.serial.baud = p.mode === 'mirrored' ? MB_SERIAL_BAUD : SERIAL_BAUD;
+}
 export function derive(c) {
   const { p, ui } = c;
+  followModeBaud(c);
   p.interval_ms = ui.rateUnit === 'ms' ? ui.rate : (ui.rate > 0 ? round3(1000 / ui.rate) : NaN);
   p.duration_s = ui.lenUnit === 'messages' ? round3(ui.len * p.interval_ms / 1000) : ui.len * UNIT_S[ui.lenUnit];
   if (p.mode === 'mirrored') { p.one_way = false; p.frame = 'compact'; p.idle_gaps_s = []; if (ui.lenUnit === 'messages') { ui.lenUnit = 'minutes'; ui.len = Math.max(1, round3(p.duration_s / 60)); } }
@@ -51,7 +61,7 @@ export function newDraft(profiles) {
 }
 export function editDraft(profile) {
   const p = clone(profile); delete p.id;
-  const c = { id: profile.id, builtin: !!profile.builtin, defaultName: profile.default_name || '', p, ui: uiFrom(p), server: '' }; c.base = JSON.stringify([c.p, c.ui]); return c;
+  const c = { id: profile.id, baudSet: true, builtin: !!profile.builtin, defaultName: profile.default_name || '', p, ui: uiFrom(p), server: '' }; c.base = JSON.stringify([c.p, c.ui]); return c;
 }
 export const isDirty = c => JSON.stringify([c.p, c.ui]) !== c.base;
 // Settings of a link type that is not chosen are not shown, so a half-typed value there (a baud of 100 typed before switching to UDP) must not block the save:
@@ -123,6 +133,7 @@ export function validate(c, profiles) {
     if (!inRange('mirrored.max_down_pct', m.max_down_pct)) e['mirrored.max_down_pct'] = rangeMsg('mirrored.max_down_pct', '%');
     if (p.transport !== 'serial' && (!inRange('mirrored.rate_baud', m.rate_baud) || !Number.isInteger(Number(m.rate_baud)))) e['mirrored.rate_baud'] = `Enter a whole number from ${fmt(bound('mirrored.rate_baud').ge)} to ${fmt(bound('mirrored.rate_baud').le)} baud (a relay channel uses 9600, 19200 or 38400).`;
   }
+  if (p.transport === 'serial') Object.assign(e, radioErrors(p, inRange));
   if (!inRange('rule.max_loss_pct', p.rule.max_loss_pct)) e['rule.max_loss_pct'] = rangeMsg('rule.max_loss_pct', '%');
   if (!mb && (!inRange('idle_repeats', p.idle_repeats) || !Number.isInteger(Number(p.idle_repeats)))) e.idle_repeats = rangeMsg('idle_repeats').replace('a number', 'a whole number');
   const g = limits.fields.idle_gaps_s;
@@ -211,9 +222,10 @@ function mirroredCard(c) {
       <label class="f">${lbl('Test length')}<div class="fieldrow"><input data-k="ui.len" data-t="num" type="number" step="any" inputmode="decimal" value="${Number.isFinite(c.ui.len) ? c.ui.len : ''}">
         <select data-k="ui.lenUnit" data-t="str">${['seconds', 'minutes', 'hours'].map(u => `<option value="${u}" ${c.ui.lenUnit === u ? 'selected' : ''}>${u}</option>`).join('')}</select></div>${errEl('ui.len')}</label>
       ${field(c, 'mirrored.trip_every_s', 'Flip the test bit every (seconds)', { t: 'The starting Pi flips the test bit (TMB1) this often; the time until it shows at the other Pi is the bit transfer time.' })}
+      ${select(c, 'mirrored.codec', 'Message format', [['sim', 'SimCodec: 4 characters, every bit sent 3 times'], ['trip', 'Trip frame: sequence + timestamp + echo + CRC (19 characters)']], { t: 'Both are our own formats for Pi-to-Pi tests, not SEL wire-compatible. The trip frame gives the round trip of every frame (no clock sync), exact lost frames and CRC errors; it frees TMB8 because the echo travels inside the frame.' })}
       ${p.transport === 'serial' ? '' : field(c, 'mirrored.rate_baud', 'Message speed (baud)', { hint: 'Over IP the same message pace as a serial channel of this speed: 9600, 19200 or 38400.' })}</div>
     ${mbFieldsHtml(p, (path, type) => ` data-k="${path}" data-t="${type}"`, p.transport === 'serial')}
-    ${p.transport === 'serial' ? '<p class="muted" style="margin:10px 0 0">The serial speed above sets the message pace: at 19200 baud one 4-character message takes 2.08 ms and the line is never idle.</p>' : ''}</div>`;
+    ${p.transport === 'serial' ? '<p class="muted" style="margin:10px 0 0">The serial speed above sets the message pace: at 38400 baud (the default here) one 4-character message takes 1.04 ms, at 19200 baud 2.08 ms; the line is never idle.</p>' : ''}</div>`;
 }
 
 function linkFields(c) {
@@ -282,7 +294,7 @@ export function formHtml(c) {
 
     <div class="card"><h2>5 · When does it pass?</h2><div class="grid g3">
       ${field(c, 'threshold_ms', 'Delay limit (ms)', { t: 'threshold' })}
-      ${select(c, 'rule.percentile', 'Pass rule: percentile', [[50, 'Typical (p50)'], [95, 'p95'], [99, 'p99 (recommended)'], [100, 'Slowest (max)']], { t: 'rule', type: 'num' })}
+      ${select(c, 'rule.percentile', 'Pass rule: percentile', [[50, 'Typical (p50)'], [95, 'p95'], [99, 'p99 (recommended)'], [99.9, 'p99.9 (long runs)'], [100, 'Slowest (max)']], { t: 'rule', type: 'num' })}
       ${field(c, 'rule.max_loss_pct', p.mode === 'mirrored' ? 'Allowed trips lost (%)' : 'Allowed loss (%)', { t: 'loss' })}
       ${p.mode === 'mirrored' ? field(c, 'mirrored.max_down_pct', 'Channel may be failed (% of the time)', { t: 'Pass limit for the share of time the channel was declared failed. Default 0.1 %.' }) : ''}</div></div>
 
@@ -337,6 +349,7 @@ function apply(c, el) {
       else c.ui.len = round3(secs / UNIT_S[v]);
     }
   }
+  if (k === 'serial.baud') c.baudSet = true;
   if (k === 'ui.port') { c.ui.port = String(v).trim(); if (c.ui.port) c.p.serial.port = c.ui.port; }
   else if (k === 'serial.port') { c.ui.port = ''; setPath(c.p, k, v); }
   else if (k.startsWith('ui.')) c.ui[k.slice(3)] = v;

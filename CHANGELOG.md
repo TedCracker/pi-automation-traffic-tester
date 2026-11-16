@@ -2,6 +2,32 @@
 
 One entry per version, newest first. The About page, "Check online" and the release notes are all built from this file.
 
+## 1.6.1 — 2026-11-16
+- **Radio serial packetization is recorded with every run.** Serial tests have a new "Radio serial packetization" section (character timeout, packet size, serial mode, note), always visible on the DER transfer trip — Orbit radio test with the advice to set the radio to one message per packet (character timeout about 2 character times, packet size = the 19-byte frame). It shows on Results, the PDF, the CSV and JSON exports and the compare view; when empty, Results says "radio packetization not recorded". The Pi never changes the radio.
+- **Warns when the radio bundles messages.** If frames arrive together in bursts, or the round trips sit at fixed steps, Results says "the radio seems to be bundling messages — check its character timeout".
+- **Data use shown before and after the run.** The setup page and Results show the payload figure (about 2 KB/s each way, about 5 GB per 30 days) and the over-the-air figure with the IP/UDP or IP/TCP header per packet (about 2.5 to 3 times more at one frame per packet), per second, day and 30 days, plus the bytes the run really sent and received.
+- **Time of day.** Every run is tagged with its start and end in local time and which busy hours it covered (weekdays 7-9 am and 4-7 pm, weekend). Runs of an hour or more break delay (p50, p99, p99.9, slowest), lost frames and outages down per hour of day and weekday vs weekend, with a small chart.
+- **Scheduled repeats.** "🔁 Repeat…" runs a test every N hours, or at fixed times of day (every day, weekdays or weekends) for N days. Schedules survive a reboot, a slot that cannot start is counted as missed, and Results shows one combined summary (worst value of any run, by time of day, busy hours covered) with a PDF.
+
+## 1.6.0 — 2026-11-15
+- **New test: "DER transfer trip — Orbit radio (2 s budget)".** It follows the transfer-trip design: one Pi plays the substation relay (SEL-351 / 751 / 651R class), the other the DER relay (SEL-700GT class), and frames run nonstop in both directions over the radio's serial port at 19200 baud. Every frame carries eight status bits, a frame number, the send time, the echo of the last frame heard and a CRC, so each Pi measures the **round trip of every frame with no clock sync**, counts lost frames exactly, counts damaged frames (CRC errors) and records every outage. It passes when 99.9 % of round trips are within 200 ms, no more than 0.1 % of frames are lost and the channel stays up. A bit counts only after two good frames in a row, and the substation Pi flips the trip bit every 2 s. It runs 24 hours by default; run it for days to catch the worst case. A frame is 19 bytes, 9.9 ms at 19200 baud (about 100 a second each way). Not wire-compatible with SEL relays, and one-way times need GPS time, which is not built in (one-way is shown as round trip / 2 and says so).
+- **New "Message format" choice on Mirrored Bits tests:** SimCodec (as before) or Trip frame. The Trip frame frees TMB8, because the echo travels inside the frame.
+- **New pass rule percentile: p99.9** (999 out of every 1000), next to p50, p95, p99 and slowest.
+- Long runs are lighter: round trips are kept as a fixed-size summary, the results chart keeps one row per minute on runs over an hour (about 0.1 MB a day on the SD card, under 1 MB for the rest of the run) and the run keeps going if the browser is closed. The results screen and PDF show round-trip percentiles up to p99.9, frames lost, CRC errors, number of outages and the longest outage.
+- The existing "DER trip — Mirrored Bits mode" test is unchanged.
+
+## 1.5.6 — 2026-11-15
+- **The serial "DER trip test" now sends a message every 10 ms instead of 50 ms.** Real-Pi runs at 20, 10 and 5 ms (19200 and 38400 baud) all passed with 0 lost, and the round-trip time depends on the baud rate, not on the period. A 10-minute run is now 60,000 messages. Tests you already saved keep their own period; the IP DER trip test, TCP session test, Overnight soak and Mirrored Bits tests are unchanged.
+
+## 1.5.5 — 2026-11-15
+- **Mirrored Bits over serial now starts at 38400 baud.** The built-in "DER trip — Mirrored Bits mode" test, a new Mirrored Bits test on a serial port, and the self-test all default to 38400 (it was 19200). On the two real Pis over a null-modem cable, 38400 gave a bit change in 2.7 ms (median) against 5.7 ms at 9600, the fewest dropouts, and passed 2 of 2 runs. Plain serial tests stay at 19200, Mirrored Bits over UDP / TCP keeps its own rate, and saved tests, and any speed you pick yourself, are not changed.
+
+## 1.5.4 — 2026-11-15
+- **Clearer link picture on the Run screen.** The top line is blue with an arrow pointing to the far Pi (request going out); the bottom line is purple with an arrow pointing back (reply coming back). Both still turn amber when late and red when lost.
+
+## 1.5.3 — 2026-11-14
+- **New name: Pi Automation Traffic Tester.** Neutral wording throughout; no behaviour change.
+
 ## 1.5.2 — 2026-11-14
 - **A capture that lost packets now says so, loudly.** On the real Pis a SPAN capture of 450 Mb/s of large frames lost about 9 % of the packets and still ended with "Pi OK" and one small grey line. The Results page now opens with a warning ("The capture is not complete: the system dropped N packets"), the PDF has the same sentence, and the result's Pi lamp reads "The Pi is the limit: its receive buffer dropped N packets". The cause on the Pi 5 is the SD card: it takes about 20 MB/s (160 Mb/s) of steady writing, so a longer or faster capture than that needs a filter, a short snap length (headers only) or a USB drive.
 
@@ -10,7 +36,7 @@ One entry per version, newest first. The About page, "Check online" and the rele
 - **VPN devices are no longer offered as Ethernet ports.** `tail0` showed up as a "wired port" next to the real one, and on a Pi with one Ethernet port the inline tap picked it as its second port and failed half way through building the bridge. Now it says "needs two different network ports" before it touches anything.
 - **"Simulate a bad link" on a generator or capture test is refused, not silently ignored.** A generator test that carried a bad-link preset ran perfectly clean and said nothing. It now stops with "works in trip tests only".
 - **A generator test you stop early shows how long it really ran** (the result, the PDF banner and Compare's Length said the planned length, for example 60 s after a stop at 10 s).
-- Found by running the generator and the sniffer on the two real Pis over a direct cable (docs/e2e-real-pis-gen-sniff.md).
+- Found by running the generator and the sniffer on the two real Pis over a direct cable (the maintainer's private notes).
 
 ## 1.5.0 — 2026-11-13
 - **Ready-made SD-card image.** Flash `pi-traffic-tester-<version>.img.xz` with Raspberry Pi Imager, power the Pi on, join the Wi-Fi **pi-setup** (password `password`) on a phone and open `http://10.42.0.1:8080`: the only screen is **Set up this Pi**. No monitor, keyboard or terminal. Software updates reach a card Pi like any other Pi (Settings → Software update).
@@ -27,7 +53,7 @@ One entry per version, newest first. The About page, "Check online" and the rele
 - **Throughput in steps** (Generator): finds the highest clean rate in 5 steps instead of one flood; result "Clean up to N Mb/s" with one row per step.
 - **Compare results:** Select 2-4 results of the same kind on Results → Compare: a table with the change against the first, one overlaid chart, one sentence, the setup differences, a one-page PDF. **Set as baseline** makes later runs of that test show "vs baseline".
 - **Job info** (optional Site, Link / radio, By, Note) in the Start bar: shown in the results list, the result, compare, PDF and exports. Never blocks Start.
-- Fixes: a Pi that restarted no longer leaves the other Pis stuck on "asks for a password"; serial / GOOSE / far generator ends left behind by a lost controller free themselves; the automatic time source no longer flips for one missed check or during a test; Stop and Delete work from any link of a test; Mirrored Bits refuses TX_ID = RX_ID, needs N consecutive good messages for ROK and raises CBAD when the channel never comes up; a far Pi's own generator test counts as busy for updates; names announced by other devices are cleaned before they reach exports. Details: docs/REVIEW-1.1.2.md.
+- Fixes: a Pi that restarted no longer leaves the other Pis stuck on "asks for a password"; serial / GOOSE / far generator ends left behind by a lost controller free themselves; the automatic time source no longer flips for one missed check or during a test; Stop and Delete work from any link of a test; Mirrored Bits refuses TX_ID = RX_ID, needs N consecutive good messages for ROK and raises CBAD when the channel never comes up; a far Pi's own generator test counts as busy for updates; names announced by other devices are cleaned before they reach exports. Details: the maintainer's private notes
 
 ## 1.3.2 — 2026-11-13
 - **Mirrored Bits: the echo alarm default is 40 ms again.** It had been tied to twice the bit-transfer limit (120 ms), so a steady +50 ms delay, which ROK cannot see, raised no alarm. RTT_MAX is a setting you can change.

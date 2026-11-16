@@ -35,11 +35,11 @@ def classify(rtt_us: Optional[int], threshold_us: int, timeout_us: int) -> str:
 
 def _stats_ms(values_us: List[int]) -> Dict[str, Optional[float]]:
     if not values_us:
-        return {"min": None, "mean": None, "p50": None, "p95": None, "p99": None, "max": None}
+        return {"min": None, "mean": None, "p50": None, "p95": None, "p99": None, "p999": None, "max": None}
     f = lambda v: None if v is None else round(v / 1000.0, 3)
     return {"min": f(min(values_us)), "mean": f(sum(values_us) / len(values_us)),
             "p50": f(percentile(values_us, 50)), "p95": f(percentile(values_us, 95)),
-            "p99": f(percentile(values_us, 99)), "max": f(max(values_us))}
+            "p99": f(percentile(values_us, 99)), "p999": f(percentile(values_us, 99.9)), "max": f(max(values_us))}
 
 
 class Accumulator:
@@ -153,9 +153,9 @@ def verdict(summary: dict, profile: dict) -> dict:
     one_way = summary.get("basis") == "up"
     leg = summary.get("leg") or profile.get("leg_info") or {}
     rt = summary["up_ms"] if one_way and summary.get("up_ms") else summary["rtt_ms"]
-    key = "max" if pct in (100, "max") else f"p{int(pct)}"
+    key = "max" if pct in (100, "max") else "p999" if pct == 99.9 else f"p{int(pct)}"
     val = rt.get(key)
-    label = "The slowest message" if key == "max" else f"{int(pct)} % of messages"
+    label = "The slowest message" if key == "max" else f"{pct:g} % of messages"
     if summary["sent"] == 0 or summary["received"] == 0:
         reasons.append("No replies were received - check the cable, port or address, and that the other Pi is on.")
     elif one_way and not summary.get("one_way"):

@@ -16,3 +16,10 @@ build-*.log
 *.key
 deploy_key
 build-image/
+*.log
+*.log.*
+*.resume*.log
+jobs-serial/
+.claude/
+docs/dev/jobs/*.id
+docs/dev/jobs/run.done

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """No fixed roles, end to end: three identical apps (pi1, pi2, pi3) in three containers on one Docker network (scripts/e2e-roles.sh).
-Nothing is set up on the destination: every Pi always answers. Prints CHECK lines for checks.md."""
+Nothing is set up on the destination: every Pi always answers. Prints CHECK lines for docs/dev/checks.md."""
 import json, os, subprocess, sys, time, urllib.request, urllib.error
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

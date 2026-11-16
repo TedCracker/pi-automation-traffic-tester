@@ -120,25 +120,41 @@ def _leg_lines(r) -> List:
     return out
 
 
+def _mb_latency(mb: dict, t: dict, r: dict) -> List:
+    """The latency block: the frame codec reports the round trip of every frame (p99.9, frames lost, CRC errors, outages); SimCodec the bit transfer time."""
+    if not mb.get("frame_mode"):
+        return [_tbl([["Bit transfer time", "p50", "p95", "p99", "max", "Limit", "Basis"],
+                      ["", _ms(t.get("p50")), _ms(t.get("p95")), _ms(t.get("p99")), _ms(t.get("max")), _ms(t.get("threshold_ms")),
+                       "one way, clocks synced" if t.get("basis") == "one_way" else "half the echo round trip"]])]
+    f = mb.get("frames") or {}
+    return [_tbl([["Round trip of every frame", "min", "p50", "p95", "p99", "p99.9", "max", "jitter", "Limit"],
+                  [f"{r.get('n')} measured", _ms(r.get("min")), _ms(r.get("p50")), _ms(r.get("p95")), _ms(r.get("p99")), _ms(r.get("p999")), _ms(r.get("max")), _ms(r.get("jitter_ms")),
+                   _ms(t.get("threshold_ms"))]]),
+            Spacer(1, 3),
+            _tbl([["Frames", "good", "lost", "lost %", "CRC errors", "repeated", "out of order", "outages", "longest outage"],
+                  ["", f.get("good"), f.get("lost"), f.get("lost_pct"), f.get("crc_errors"), f.get("duplicates"), f.get("out_of_order"), mb.get("outage_count"),
+                   f"{mb.get('longest_outage_ms')} ms"]]),
+            Spacer(1, 2),
+            Paragraph("Round trip = from the echo in each frame (frame number + send time returned by the other end, minus the time it held the frame): no clock sync. "
+                      "One way is about half of it, an estimate; true one-way needs GPS time (not built in). Lost frames are counted exactly from the frame numbers.", BODY)]
+
+
 def _mb_emulator(mb: dict) -> List:
     """Mirrored Bits emulator section: transfer time, availability, RBAD / CBAD, rejects by reason, inter-arrival histogram, impairment, event log."""
     t, r, rej, imp = mb.get("transfer") or {}, mb.get("rtt") or {}, mb.get("rejects") or {}, mb.get("impair") or {}
     out: List = [Paragraph("Mirrored Bits channel", H3),
                  Paragraph(f"Two Mirrored Bits emulators at {mb.get('baud')} baud (PROTO {mb.get('proto')} on this Pi), one full message every {mb.get('wire_period_ms')} ms in each direction. "
                            f"{mb.get('codec')}.", BODY),
-                 _tbl([["Bit transfer time", "p50", "p95", "p99", "max", "Limit", "Basis"],
-                       ["", _ms(t.get("p50")), _ms(t.get("p95")), _ms(t.get("p99")), _ms(t.get("max")), _ms(t.get("threshold_ms")),
-                        "one way, clocks synced" if t.get("basis") == "one_way" else "half the echo round trip"]]),
+                 *_mb_latency(mb, t, r),
                  Spacer(1, 3),
                  _tbl([["ROK availability", "ROK was 0", "Longest outage", "ROK drops", "RBAD events", "CBAD events", "Lost-channel", "Echo alarms"],
                        [f"{mb.get('availability_pct')} %", f"{mb.get('unavail_pct')} %", f"{mb.get('longest_outage_ms')} ms", mb.get("rok_drops"), mb.get("rbad_events"),
                         mb.get("cbad_events"), mb.get("lost_events"), r.get("alarm_events")]]),
+                 *([] if mb.get("frame_mode") else [Spacer(1, 3), _tbl([["Round trip (echo bit)", "min", "p50", "p99", "max", "jitter", "RTT_MAX"],
+                       ["", _ms(r.get("min")), _ms(r.get("p50")), _ms(r.get("p99")), _ms(r.get("max")), _ms(r.get("jitter_ms")), _ms(r.get("rtt_max_ms"))]])]),
                  Spacer(1, 3),
-                 _tbl([["Round trip (echo bit)", "min", "p50", "p99", "max", "jitter", "RTT_MAX"],
-                       ["", _ms(r.get("min")), _ms(r.get("p50")), _ms(r.get("p99")), _ms(r.get("max")), _ms(r.get("jitter_ms")), _ms(r.get("rtt_max_ms"))]]),
-                 Spacer(1, 3),
-                 _tbl([["Messages", "sent", "received good"] + [k for k in ("parity", "framing", "overrun", "consistency", "address", "loopback", "timing", "missing")],
-                       ["", mb.get("tx_msgs"), mb.get("rx_good")] + [rej.get(k, 0) for k in ("parity", "framing", "overrun", "consistency", "address", "loopback", "timing", "missing")]])]
+                 _tbl([["Messages", "sent", "received good"] + [k for k in ("parity", "framing", "overrun", "consistency", "crc", "address", "loopback", "timing", "missing")],
+                       ["", mb.get("tx_msgs"), mb.get("rx_good")] + [rej.get(k, 0) for k in ("parity", "framing", "overrun", "consistency", "crc", "address", "loopback", "timing", "missing")]])]
     if mb.get("overrun_available") is False:
         out.append(Paragraph("Overrun counting is not available on this serial port (the driver has no counter).", BODY))
     h = mb.get("histogram") or {}
@@ -160,6 +176,67 @@ def _mb_emulator(mb: dict) -> List:
         out.append(Spacer(1, 3))
         out.append(Paragraph(f"Event log (last {len(ev)} of {mb.get('events_total')}; the full log is in the CSV export)", BODY))
         out.append(_tbl([["Time", "Element", "Value", "Note"]] + [[f"{e['t_s']:.3f} s", e["name"], e["value"], e.get("note", "")] for e in ev]))
+    return out
+
+
+def _radio_block(s: dict) -> List:
+    """Radio packetization as recorded, when the run happened (busy hours), the bundling check, data used and the by-hour-of-day table."""
+    rd, w, u = s.get("radio"), s.get("when"), s.get("usage")
+    mb = s.get("mirrored") or {}
+    if not (rd or w or mb.get("packetization")):
+        return []
+    out: List = [Spacer(1, 4), Paragraph("Radio, time of day and data use", H3)]
+    if rd:
+        out.append(Paragraph(_x(rd.get("text") or "radio packetization not recorded"), BODY))
+    if w:
+        out.append(Paragraph(f"Ran {_x(w.get('start_local', ''))} to {_x(w.get('end_local', ''))} ({_x(w.get('tag', ''))}). {_x(w.get('note', ''))}", BODY))
+    pk = mb.get("packetization")
+    if pk:
+        out.append(Paragraph(("<font color='#b91c1c'><b>Warning:</b></font> " if pk.get("suspected") else "") + _x(pk.get("message", "")), BODY))
+    if u:
+        a, o = u.get("actual") or {}, (u.get("over_the_air") or {}).get(u.get("selected") or "udp") or {}
+        out.append(Paragraph(_x(u.get("text", "")), SMALL))
+        if a:
+            out.append(Paragraph(f"This run actually sent {a.get('tx_bytes', 0):,} bytes and received {a.get('rx_bytes', 0):,} bytes of frames "
+                                 f"(about {a.get('tx_over_air_bytes', 0):,} / {a.get('rx_over_air_bytes', 0):,} bytes over the air).", BODY))
+    hr = mb.get("hourly")
+    if hr:
+        out += _hourly_block(hr)
+    return out
+
+
+def _hourly_block(hr: dict) -> List:
+    f = lambda v: "-" if v is None else f"{v:g}"
+    rows = [["Hour of day", "Round trips", "p50 ms", "p99 ms", "p99.9 ms", "Slowest ms", "Lost frames", "Outages"]]
+    for h in hr.get("by_hour_of_day") or []:
+        rows.append([f"{h['hour']:02d}:00", h["n"], f(h["p50"]), f(h["p99"]), f(h["p999"]), f(h["max"]), h["lost"], h["outages"]])
+    for k, label in (("weekday", "Weekdays"), ("weekend", "Weekends")):
+        h = (hr.get("kinds") or {}).get(k)
+        if h:
+            rows.append([label, h["n"], f(h["p50"]), f(h["p99"]), f(h["p999"]), f(h["max"]), h["lost"], h["outages"]])
+    out: List = [Spacer(1, 3), Paragraph("Delay by hour of day (local time) and weekday vs weekend", BODY), _tbl(rows)]
+    hod = hr.get("by_hour_of_day") or []
+    if len(hod) > 1:
+        ser = lambda k: [(h["hour"], h[k]) for h in hod]
+        out += [Spacer(1, 3), _chart([("p50", ser("p50"), GREEN), ("p99", ser("p99"), TEAL), ("p99.9", ser("p999"), RED), ("slowest", ser("max"), GREY)], "Delay by hour of day (0-23)", "ms")]
+    out.append(Paragraph(_x(hr.get("note", "")), SMALL))
+    return out
+
+
+def _combined_block(c: dict) -> List:
+    t = c.get("totals") or {}
+    f = lambda v: "-" if v is None else f"{v:g}"
+    out: List = [Paragraph(f"Scheduled repeats: {_x(c.get('name', ''))}", H2), Paragraph(_x(c.get("schedule_text", "")) + ". " + _x(c.get("coverage_note", "")), BODY),
+                 _tbl([["Runs", "Passed", "Failed", "Missed slots", "Frames sent", "Frames lost", "Worst p99 ms", "Worst p99.9 ms", "Worst slowest ms"],
+                       [t.get("runs"), t.get("passed"), t.get("failed"), t.get("missed_slots"), t.get("frames_sent"), t.get("frames_lost"), f(t.get("worst_p99")), f(t.get("worst_p999")), f(t.get("worst_max"))]]),
+                 Paragraph(_x(c.get("basis", "")), SMALL)]
+    if t.get("bundling_runs"):
+        out.append(Paragraph(f"<font color='#b91c1c'><b>Warning:</b></font> the radio seemed to be bundling messages in {t['bundling_runs']} run(s).", BODY))
+    if c.get("by_tag"):
+        out += [Spacer(1, 3), _tbl([["Time of day", "Runs", "Failed", "Frames lost", "Worst p99 ms", "Worst p99.9 ms", "Worst slowest ms"]] +
+                                   [[x["tag"], x["runs"], x["fails"], x["lost"], f(x["worst_p99"]), f(x["worst_p999"]), f(x["worst_max"])] for x in c["by_tag"]])]
+    out += [Spacer(1, 3), _tbl([["Run", "Started", "Tag", "Result", "Sent", "Lost", "p99 ms", "p99.9 ms", "Slowest ms"]] +
+                               [[x["run_id"], x["start"], x["tag"], x["verdict"] or x["status"], x["sent"], x["lost"], f(x["p99"]), f(x["p999"]), f(x["max"])] for x in c.get("rows") or []])]
     return out
 
 
@@ -195,6 +272,7 @@ def _trip_section(store, r) -> List:
                           f"{mb.get('down_pct')} %", f"{mb.get('longest_outage_ms')} ms", "-" if mb.get("detect_ms_avg") is None else f"{mb.get('detect_ms_avg')} ms"]]))
         if mb.get("one_way_note"):
             out.append(Paragraph(str(mb["one_way_note"]), BODY))
+    out += _radio_block(s)
     idle = (s.get("idle") or {}).get("gaps") or []
     if idle:
         out.append(Paragraph("First message after a quiet period", H3))
@@ -473,7 +551,7 @@ def _tester_marks_para(r: dict) -> list:
     return out
 
 
-def build_report(store, run_ids: List[int], title: str = "Link test report", hostname: Optional[str] = None, pi_name: Optional[str] = None) -> bytes:
+def build_report(store, run_ids: List[int], title: str = "Link test report", hostname: Optional[str] = None, pi_name: Optional[str] = None, repeat: Optional[dict] = None) -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=16 * mm, bottomMargin=16 * mm,
                             title=title, author="Pi Automation Traffic Tester")
@@ -513,6 +591,9 @@ def build_report(store, run_ids: List[int], title: str = "Link test report", hos
         nm = Paragraph(_x(nm) + f"<br/><font size=7 color='#5c6b7a'>{_x(rt)}</font>", SMALL) if rt else nm
         summ.append([r["id"], nm, kind, r["started_at"], r["verdict"] or r["status"], key])
     story.append(_tbl(summ, [8 * mm, 52 * mm, 28 * mm, 34 * mm, 16 * mm, 40 * mm]))
+    if repeat:
+        story.append(PageBreak())
+        story += _combined_block(repeat)
     for r in runs:
         story.append(PageBreak())
         kind = (r["summary"] or {}).get("kind")

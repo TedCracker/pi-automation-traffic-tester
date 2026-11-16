@@ -20,7 +20,7 @@ export function renderRun(root, nav) {
       <button class="btn" id="mbSelf" data-testid="mb-selftest" title="Two Mirrored Bits emulators inside this Pi, joined by an in-process wire: try the screen without a second Pi">Try Mirrored Bits (internal self-test)</button></div></div><div id="mbSelfHost"></div>`;
     $('#toSetup').onclick = () => nav('setup'); bindBar(root);
     let mbOff = null; const showMb = () => { if (mbOff) mbOff(); mbOff = mountMB($('#mbSelfHost')); };
-    $('#mbSelf').onclick = async () => { try { await api('/mb/selftest', { method: 'POST', body: { duration_s: 600, baud: 19200 } }); showMb(); } catch (e) { toast(e.message, true, 7000); } };
+    $('#mbSelf').onclick = async () => { try { await api('/mb/selftest', { method: 'POST', body: { duration_s: 600, baud: 38400 } }); showMb(); } catch (e) { toast(e.message, true, 7000); } };
     api('/mb/live').then(d => { if (d && d.running_any && $('#mbSelfHost') && !mbOff) showMb(); }).catch(() => { });      // a self-test (or the answering side) is already running here: show it
     return;
   }

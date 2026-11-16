@@ -1,97 +1,76 @@
 # Pi Automation Traffic Tester
 
-## Origin
-A utility wants a DER point-to-point trip test over 5G / FirstNet with a 60 ms target, but has no SEL relays for Mirrored Bits. Plan: **Raspberry Pi 5**s (target hardware — corrected from Pi 4, 2026-11-03), two or more, all running the same app, emulating Mirrored Bits timing.
+**Turn two or more Raspberry Pi 5s into a network and serial-link tester**: measure round-trip delay, jitter and message loss over serial, Ethernet or radio links (for example a 5G/FirstNet trip-signal path with a 60 ms target), generate traffic, and capture/sniff it, all from a web page on your phone or laptop.
 
-## One app on every Pi (1.2.0)
-Install the **same app on every Pi**. There is no "Pi A / Pi B", "Tester" or "Responder" any more: every Pi has a **name**, finds the other Pis on its network by itself (mDNS, or **Add a Pi by IP address** where multicast is blocked), **always answers** UDP and TCP test messages on port 20500, and can start a test. Each test picks the far Pi or Pis (one to many; **⇅ Swap** for many to one) and a **Direction** (*One way*, *Round trip*, *Both ways*); the traffic generator can send between several Pis at once. The Pi whose page you are on controls the test, stores the results and names which Pi sent and which received. One Pi serves the clock for one-way timing (Settings → Time source). Existing Pi A / Pi B installs update in place and keep working. Spec: docs/SPEC.md §2; decisions: DECISIONS.md 2026-11-12; Settings screens: `scripts/e2e-settings-peers.sh`.
+![The app's Tests page](docs/screenshots/home-tests.png)
 
-## Hardware
-- Cable options: USB-DB9 adapter + DB9-RJ45 adapter, or USB-RJ45 console cables. Verify the radio's RJ45 pinout.
-- FTDI `latency_timer` → 1 ms (default 16 ms).
-- GPIO UART + MAX3232 (RS-232 levels) avoids USB latency; the Pi 5's RP1 chip adds only microseconds.
-- Pi overhead ≈1–3 ms per side when tuned with a USB-serial adapter (FTDI USB poll dominates); Python scheduling on the Pi 5 ≈0.05–0.3 ms; GPIO UART well under 1 ms plus character time. Gigabit Ethernet is real gigabit (~940 Mb/s).
-- **Pi 5 specifics:** Raspberry Pi OS Bookworm or newer, 64-bit only. Power: official 5 V / 5 A USB-C (27 W) — on a 3 A supply USB is capped at 600 mA total and USB-serial adapters may misbehave. Serial via RP1: 3-pin JST debug connector = `/dev/ttyAMA10` (also `/dev/serial0` by default); GPIO 14/15 (pins 8/10) = `/dev/ttyAMA0` after `dtparam=uart0=on` in `/boot/firmware/config.txt`; extra UARTs via overlays `uart1-pi5`…`uart4-pi5` = `/dev/ttyAMA1..4`. Verify on the real Pi: `ls -l /dev/serial* /dev/ttyAMA*`, `pinctrl get 14,15`.
-- Null-modem cable for a back-to-back baseline.
+## What you need
 
-## Users
-Network engineers, not automation engineers: hide SCADA/DNP3/Mirrored Bits concepts behind presets (e.g. "DER trip test") with plain pass/fail.
+- **2 or more Raspberry Pi 5** (one per end of the link), each with the official **5 V / 5 A USB-C power supply**
+- A **microSD card (32 GB+) or SSD** per Pi
+- For serial tests: **USB-serial adapters** (FTDI) and a **null-modem cable** (or the radios' own cables)
+- A **phone or laptop** with a browser
+- Internet for the install (one time), unless you use the offline package
 
-**Review 2026-11:** 41 findings fixed with tests, UI streamlined (3-step Setup, one live Run screen), AI guide updated. See `docs/REVIEW-2026-11.md` and the last section of `RESULT.md`.
+## Install in 3 steps
 
-## Spec items (so far)
-- Configurable pass/fail latency threshold (default 60 ms).
-- Web GUI: Setup / Run / Results tabs (plus Generator, Sniffer, Settings), live charts. The live chart, bit view and link diagram are on the Run screen (the separate Monitor tab was merged into it in the 2026-11 review).
-- UI/UX (2026-11-03): very modern, built on today's most current, popular UX/UI design patterns; above all very functional and very easy to use. Intuitive for network engineers (not automation engineers): they should never have to figure out the interface — what to do next must be obvious.
-- Run screen, live: delay chart vs threshold line; scrolling bit view each direction; link diagram turns red on late/lost messages.
-- Round-trip timing between any two Pis (send → reflect → back), in either direction or both at once; several Pis to several Pis for the generator.
-- One-way timing via NTP sync, one Pi (or a laptop) as the clock (Settings → Time source; no GPS); sync over local cable/Wi-Fi, not the 5G link.
-- Selectable egress/ingress port per test (serial/USB, Ethernet, Wi-Fi) with auto-detect.
-- DNP3 over serial, TCP or UDP (one Pi as master, another as outstation on port 20000; app opens/keeps the TCP session, times setup and reconnect).
-- Modbus RTU and TCP.
-- IEC 61850 GOOSE: full L2 GOOSE (Ethernet, 0x88B8, VLAN/priority) and L3 multicast GOOSE (R-GOOSE over UDP multicast) testers on both ends, all GOOSE parameters configurable (2026-11-03). No tunnelling in the app: the cellular router carries GOOSE over cellular in GRE tunnels. Spec: docs/SPEC.md §5.5.
-- Serial-to-IP converter tests; carrier failover tests.
-- Metrics: latency, jitter, lost-message counts, throughput (light check only; see DECISIONS on skipping line-rate generation).
-- Long overnight soak tests; link drop/recovery timing.
-- Test sessions, each with its own data history; clear / new session; save/export to flash drive.
-- Report builder: pick any mix of saved sessions → nicely formatted PDF, emailable from the Pi (SMTP settings entered once).
+> Full, click-by-click guide for beginners: **[INSTALL.md](INSTALL.md)**.
 
-### Added from open-source tester research (2026-11-03)
-- **Fixed-interval trip messages (irtt-style):** sequence-numbered messages at a set interval; latency percentiles p50/p95/p99/max plus a count of messages over the threshold (default 60 ms); pass/fail on percentile, not average. Split up vs down (one-way delay and loss) only while the NTP offset is within a set limit, otherwise round-trip only; show the offset beside one-way numbers. Count duplicate and late messages too.
-- **First-message-after-idle stats:** reported separately from steady state, with configurable idle gaps (e.g. 5 s / 30 s / 2 min / 10 min). Captures 5G/FirstNet radio wake-up delay (hundreds of ms to seconds), the delay a rare real trip message would see.
-- **USB-serial adapter self-check:** before each test, read and fix FTDI `latency_timer` (default 16 ms → 1 ms; resets on replug, so persist with a udev rule); measure local serial overhead with a back-to-back / null-modem baseline; local loopback self-test to separate adapter faults from network faults.
-- **Impairment presets (Linux tc/netem):** one-click "bad cell", "handover", "burst loss" style profiles (added delay, jitter, loss incl. burst loss) with a fixed seed so runs repeat; shows how the link and pass/fail behave under bad conditions.
-- **Latency-under-load mode (Flent RRUL-style):** measure trip latency while saturating the link with background traffic.
-- **Output:** per-interval results plus JSON/CSV export (iperf3-style); feeds the live charts and the PDF report.
+1. **Get a card ready.** Easiest: flash the ready-made image (`.img.xz` from Releases) with *Raspberry Pi Imager* → *Use custom*. Otherwise flash *Raspberry Pi OS (64-bit)* with SSH turned on.
+2. **If you flashed plain Raspberry Pi OS**, log in to the Pi (`ssh <user>@<pi-name>.local`) and run:
+   ```
+   sudo apt update && sudo apt install -y git
+   git clone https://github.com/TedCracker/pi-automation-traffic-tester.git
+   cd pi-automation-traffic-tester && sudo bash scripts/install-pi.sh
+   ```
+   (With the ready-made image there is nothing to run.)
+3. **Repeat for every Pi**, each with its own name (`pi1`, `pi2`, ...).
 
-### Saved test profiles (2026-11-03)
-- **Saved test profiles:** save any test setup (transport/port, interval, idle gaps, threshold, pass/fail rule, duration, impairment) as a named profile and reuse it instead of starting from scratch.
-- **Export / import:** profiles export to a file (JSON) and import from a file, so engineers can share tested setups.
-- **Built-in presets** (e.g. "DER trip test") ship as starting profiles: read-only, "Duplicate to edit".
-- **＋ New test** (1.4.0, replaces the custom form and the three-step wizard): one page in test-set order — **Port** (this Pi's real ports, or Automatic) → **Protocol** (only what that port carries) → **From → To** (tick one or more Pis; One way / Round trip / Both ways; Swap) → **Traffic** (rate, length, pass rule; More options for the rest) — with the Start bar (automatic check, Job line, Save, ▶ Start) always at the bottom. ▶ Run and Edit on a test card open the same page. See docs/SPEC.md §6.4; e2e `scripts/e2e-newtest.sh`.
+No internet at the site? Use the **offline package**: [docs/INSTALL-OFFLINE.md](docs/INSTALL-OFFLINE.md).
 
-## Mobile + software updates (2026-11-12)
-- **Mobile friendly.** Every tab works one-handed on a phone (360×780, 390×844, landscape 844×390, tablets, desktop unchanged): bottom tab bar, 44 px tap targets, 16 px inputs (no iOS zoom), tables scroll inside their own box, charts resize, Start/Stop stays reachable. "Add to Home Screen" works (web app manifest + icons, no CDN). Proof: `scripts/e2e-mobile-sweep.sh` (every tab × 3 phone sizes, automatic overflow / tap-target / font checks, screenshots `docs/screenshots/mobile-*.png`).
-- **Software update**: Settings → *Software update* (on every Pi). Shows the installed version + date and two ways to update: **Upload a file** (pick the `.ptt` from the phone/PC browser over Wi-Fi or Ethernet; no internet needed) or **Check online** (newest version + notes, *Install*; greyed out with the reason when there is no internet or key). Install = verify signature → stage → keep the current app as `app.prev` → swap → restart → health check (main page + `/api/status` within 60 s) → otherwise **automatic rollback**. *Roll back to previous version* button. Saved tests, results and settings live outside the app folder and are never touched. A Pi can also push the same verified bundle to another Pi ("Also update another Pi": pick it from *Pis on this network* or type its address). Optional, off by default: daily check that only shows a dot on Settings.
-- **Security**: an update is accepted ONLY if its **Ed25519 signature** verifies against the public key built into the app (`traffic_tester/update/pubkey.py`) and every file matches its signed hash. Private key: `~/.config/pi-traffic-tester/release-signing.key` on the release machine only (chmod 600, never in git). Older versions are refused unless "Allow an older version" is ticked. With a web password set, updating requires being signed in. The web app never runs as root: the full install has a root-owned helper started through one polkit rule for one fixed unit (`traffic-tester-update.service`); the rootless install (tvbrain) runs the helper detached via `systemd-run --user`.
-- **To push an update (the maintainer's side): ONE command** — `./scripts/publish-update.sh "what changed"` (add `--minor` / `--major` for bigger bumps). It bumps the version, runs the unit tests, builds + signs `pi-traffic-tester-<version>.ptt`, pushes it to the private GitHub repo `OWNER/pi-traffic-tester-releases` (branch `stable`, always a single commit so the repo stays small) and copies the `.ptt` to `/mnt/d/pi-usb/` for the upload route. Or just tell Claude: **"push the Pi update"**.
-- **How a field Pi updates**: Settings → Software update → *Check for updates* → *Install* (needs Wi-Fi internet and the read-only deploy key the installer puts on the Pi; the connection uses `ssh.github.com:443`, so it works where port 22 is blocked). No internet? Copy the `.ptt` from the USB stick / PC and use *Upload a file*.
-- If an update needs new Python packages, the bundle carries the aarch64 wheels (Python 3.11 and 3.13) so offline updates still work; if it cannot, the Pi says exactly what is missing and changes nothing. Tests: `tests/test_update*.py` (signature, tamper, wrong key, unsigned, downgrade, swap/rollback, health failure, password gate, local bare repo as stand-in for GitHub) and `scripts/e2e-update.sh` (real systemd containers, the real installer + polkit + root helper). Design: DECISIONS 2026-11-12.
+## Open the app
 
-## Update 1.1.3 (2026-11-12): test control, About, Mirrored Bits mode, auto-refresh
-- **Version under the logo** (every page, tap it for About) and an **About** page: installed version + date, which Pi this is, update status and **What's new** from `CHANGELOG.md` (the one source: the About page, "Check online" notes before Install, the one-time "Updated to vX" banner and the release notes all come from it; `publish-update.sh` refuses to publish without an entry for the new version).
-- **One list of tests you control** (Setup): tap a test for a plain-English panel (what it tests, how it works, what you need, what pass means, typical use), **Edit** any built-in test (kept as an override of the default: updates never wipe it, **Reset to default** always works), **rename**, **hide/restore**, **reorder**, **create**, **delete with Undo**. Export/import carry edits, hidden tests and order. Spec: docs/SPEC.md 6.5.
-- **DER trip — Mirrored Bits mode**: both Pis send continuously, back to back (9600/19200/38400 baud), check every message and time a trip bit across the link; channel statistics, two-lane live view, the other Pi shows its own stats. Not wire-compatible with SEL relays. Spec: docs/SPEC.md 6.6.
-- **Run and Results refresh by themselves** (live, or polling every 2 s / 10 s when the live connection is down; Refresh button and on/off switch).
-- **Fixes from the first real-Pi tests**: the live view WebSocket now works on a standard install (`websockets` in requirements.txt; test builds a clean venv from requirements.txt only), generator data address defaults to the web address, a stop request is logged and shown in the result, Wi-Fi power-saving warning + one-click off, results say when the path was Wi-Fi.
+- Join the Pi's own Wi-Fi hotspot: the name is the Pi's name (`pi-setup` on a brand-new image card), password **`password`**. Then open **http://10.42.0.1:8080**.
+- Or open **http://\<pi-name\>.local:8080** from any device on the same network as the Pi's Ethernet cable.
+- A brand-new image card shows **"Set up this Pi"** first: type a name (`pi1`) and tap **Name this Pi**.
+- **Change the default Wi-Fi password** in **Settings → Network**, and set a web password in **Settings → Web password** if others share the network.
 
-## Ready-made SD-card image (1.5.0)
+## Run your first test
 
-A card you can flash and use: **no monitor, keyboard or terminal**. `START-HERE.pdf` (one page, in the `pi-usb` folder with the image) shows it with pictures.
-1. Raspberry Pi Imager → Raspberry Pi 5 → *Use custom* → `pi-traffic-tester-<version>.img.xz` → the card → (optional) *Edit settings*: your Wi-Fi → Write.
-2. Card in the Pi, power on, wait 2 minutes.
-3. On a phone join the Wi-Fi **`pi-setup`** (password **`password`**) and open `http://10.42.0.1:8080` (or `pitester.local:8080`; phones often open it by themselves). The only screen is **Set up this Pi**: type a name (`pi1` is offered; the next Pi finds the others over mDNS and offers `pi2`) and tap *Name this Pi*. The Pi's hostname becomes `<name>.local`, its Wi-Fi network is renamed to `<name>` (password stays `password`) and the page reopens by itself.
+1. Install the second Pi with another name; they find each other automatically.
+2. Open **Tests** and press **▶ Run** on **Quick link check**.
+3. Choose the other Pi and press **Start**.
+4. Watch the live chart on the **Run** page.
+5. Read the pass/fail verdict; every run is kept under **Results** (export JSON/CSV or a PDF report).
 
-How it behaves: the card is the stock Raspberry Pi OS Lite 64-bit (current release) with everything `install-pi.sh` sets up already in it (app, venv, packages, capabilities, FTDI udev rule, chrony, update helper + polkit rule, release public key, the read-only deploy key for *Check online*, Nexmon Wi-Fi sniffing). Fully offline after flashing; updates later come from Settings → Software update (no reflash). **No login password exists on the card, and SSH is off** unless you switch it on in Imager. Imager's *Edit settings* (user, Wi-Fi, hostname, SSH) keep working: the card uses the base image's own first-boot path (cloud-init, files `user-data` / `network-config` on the boot partition). If Imager was given a Wi-Fi, the Pi **joins that Wi-Fi and keeps its own network off** (a Pi 5 radio cannot serve both; Settings → Network turns the access point back on); without a reachable network for 3 minutes the emergency access point still starts. Pis flashed from the same card start as `pitester`/`pi-setup`: set them up one at a time. The card carries no Pi identity: every card creates its own id, first-setup time and (empty) password settings on first start.
+For a serial link, connect the two Pis with a null-modem cable and start with **Back-to-back baseline**: it shows how much delay the Pis and adapters add themselves.
 
-### Making a new card image
+## Update
+
+**Download the newest code** (green **Code** button → **Download ZIP**, or `git pull` in your clone), copy it to the Pi and run `sudo bash scripts/install-pi.sh` again; your tests and results are kept. The in-app **Check for updates** button needs the original maintainer's private update channel, so it does **not** work on a copy you installed from this public page; use the steps above (or a `.ptt` file if the maintainer gave you one). Details in [INSTALL.md](INSTALL.md#update).
+
+## Help
+
+- **Troubleshooting:** [INSTALL.md → Common problems](INSTALL.md#common-problems) and [docs/INSTALL-PI.md](docs/INSTALL-PI.md) (power, serial ports, sniffer wiring).
+- **In the app:** the **AI guide** link (top right) explains the current screen; the optional **Ask Claude** panel can answer questions about your tests.
+- **Bugs and questions:** open an *Issue* on the GitHub page of this project.
+
+## More documentation
+
+| Topic | Where |
+|---|---|
+| All guides, indexed | [docs/README.md](docs/README.md) |
+| What's new in each version | [CHANGELOG.md](CHANGELOG.md) |
+| Features, spec items, long technical notes | [docs/DETAILS.md](docs/DETAILS.md) |
+| Formal spec and architecture | [docs/SPEC.md](docs/SPEC.md) |
+| Hardware, cabling, serial ports, sniffer | [docs/INSTALL-PI.md](docs/INSTALL-PI.md) |
+
+## For developers
+
 ```
-scripts/pkg/build-image.sh            # ~15 min; needs docker (privileged), arm64 binfmt, ~12 GB, internet
+python3 -m venv venv && venv/bin/pip install -r requirements-dev.txt
+venv/bin/python -m pytest tests -q        # unit tests
 ```
-It downloads the current Raspberry Pi OS Lite (arm64) from downloads.raspberrypi.com and checks its sha256, grows the root file system, and runs `install-pi.sh --image` inside it (arm64 chroot under qemu-user in a privileged Docker container), then cleans it (no database, no host keys, empty machine-id, no logs), checks the result (about 20 checks, printed), shrinks it with `resize2fs -M` (the stock first boot expands it to the whole card) and compresses with xz. Result: `build-image/out/pi-traffic-tester-<version>.img.xz` + `.sha256`, copied to `/mnt/d/pi-usb` (`--no-deliver` to skip). `--keep` keeps the unpacked image for the boot test: `scripts/e2e-image.sh` boots it in QEMU (aarch64 `virt`, Debian's generic arm64 kernel: the Pi kernel cannot run there) and drives it with a phone-size browser (name the Pi, second Pi finds the first, Imager-style user + Wi-Fi seed). Nexmon modules for the card's kernel come from `scripts/pkg/fetch-nexmon.sh` + `build-nexmon-modules.sh` into `build-image/nexmon` (the build warns when they are missing). App updates never need a new image: `scripts/publish-update.sh`.
-START-HERE.pdf is made by `scripts/pkg/make-start-here.py`.
+Layout: `traffic_tester/` the app (Python + browser UI), `scripts/` installer, packaging and end-to-end scripts, `tests/`, `docs/`. Build and update scripts: `scripts/pkg/build-image.sh` (SD image), `scripts/publish-update.sh` (signed update bundle).
 
-## Update 1.4.0 (2026-11-13): New test page, many links, Mark, tester lamp, compare, steps, job info
-- One-page **New test** (above); **one table for many links** on Run and on the result; **⚑ Mark** with Since mark / Whole test; **tester lamp** (is the Pi itself the limit?); **Throughput in steps**; **Compare** 2-4 results + **Set as baseline**; optional **Job info** (site, link, who, note). Spec §6.4, §7.5-7.7; review and fixes: docs/REVIEW-1.1.2.md; competitive review: docs/COMPETITIVE-UI-REVIEW.md.
-
-## Phases
-- **Phase 4: traffic generator — DONE 2026-11-03** (own Ostinato-style generator: L2/IP/UDP/TCP streams, rate/size/IMIX/bursts, throughput/loss/latency/jitter, PASS/FAIL, "Traffic generator" tab, presets, sessions, PDF report). Spec: docs/SPEC.md §13. Phase 5 (built 2026-11-03): traffic sniffer — Ethernet inline tap / SPAN, serial RS-232/RS-485 tap with DNP3 + Modbus RTU decoding, Wi-Fi monitor; pcapng for Wireshark; extra hardware list in docs/INSTALL-PI.md. Spec: docs/SPEC.md §14. Hardware-only checks still open (TODO.md).
-- **AI guide — built 2026-11-09.** The app explains itself to AI assistants, so an **unmodified Tag Along** (or any browser sidebar / chat that can read a page or fetch a URL) can answer "how do I run a 60 ms trip test over serial?", "why did the last test fail?", "is GOOSE available on this Pi?" and, in Interactive mode, click through the app. Open `http://<pi>:8080`, turn on **Watch** in Tag Along, ask. The full manual is **/ai-guide** (HTML) and **/ai-guide.txt** (also `/llms.txt`): what this Pi is (name, version, the other Pis it knows), **live state** (running test, last result with numbers, whether it is answering tests, clock, adapters, what is unavailable and why), every screen and control by exact label + `data-testid`, click-by-click recipes, how to read results, glossary, API summary. Every screen also carries a small "For AI assistants" note and an **AI guide** link (header, footer). Read-only, no secrets, same login rule as the app. Generated from the code (presets, routes, tabs, kinds) and tested so it cannot go stale. How it works and how Tag Along reads pages: **docs/AI-GUIDE.md**.
-- **Phase 8: Claude Code on the Pi — built 2026-11-03** (optional, **off by default**, never required; the tester stays 100 % offline-capable). **✦ Ask Claude**: a resizable right sidebar that reads the screen, explains failed tests, starts/stops tests and changes settings by chat (every action shown as a line with its result), and suggests changes to the app as a diff you Apply or Discard and can always Undo. Sign in once with your own Claude subscription (no API key; protected by the web password); **log out wipes every credential and checks nothing is left**. **Remote Control** (phone) switch, SSH-from-Windows setup, Settings tab (web password, network check, Claude Code), and the network split (Wi-Fi = internet, Ethernet = test traffic only). See docs/SPEC.md §15 and docs/INSTALL-PI.md ("Claude Code on the Pi"). Install: `sudo ./scripts/install-pi.sh --with-claude`.
-- **Phase 6: built-in Wi-Fi sniffing (Nexmon) + offline install package — built 2026-11-03.** The Pi 5's own Wi-Fi chip can sniff 802.11 as an *experimental* option next to the recommended USB adapter (Alfa AWUS036ACM / AWUS036AXML). Kali's Nexmon driver does not build on Raspberry Pi OS as shipped; we patch it and ship prebuilt modules for 18 Pi 5 kernels. Normal Wi-Fi is restored by one button, on stop, by a watchdog and at boot (the stock driver/firmware are never replaced). Ethernet L2 capture (inline tap + SPAN) sits next to it as presets. **Offline package** (`scripts/pkg/build-offline-package.sh` → `pi-traffic-tester-offline-<ver>.zip`, on Google Drive): everything the Pi needs with no internet. Spec: docs/SPEC.md §14.6; install: docs/INSTALL-PI.md "Offline install".
-- **Phase 7: full end-to-end test — run 2026-11-03.** `scripts/e2e-full.sh` exercises two app instances in both directions (started on either one, naming the other as destination, and both ways at once) (serial, UDP, TCP, netem, GOOSE L2 + R-GOOSE, generator, sniffer through an inline tap with tshark, network split, Ask Claude, UI/API sweep), natively and on arm64. It found and fixed a real bug: R-GOOSE framing did not match IEC 61850-90-5 (tshark rejected it). Results and the honest list of what needs real hardware: RESULT.md, checks.md, docs/SPEC.md §16.
-- **Offline install package on Google Drive — built 2026-11-03.** One zip for a locked-down Windows laptop (no USB, no installs): download it, cable laptop to Pi, `scp` the tar.gz, `sudo ./install-offline.sh` (no roles: every Pi is the same; `--role` is accepted and ignored). A fresh install makes the Pi's Wi-Fi an access point (SSID = the Pi's name, password `password`, `http://10.42.0.1:8080`) and Ethernet a DHCP client for internet + testing; existing installs keep their network, and Settings → Network (Wi-Fi: access point / join / off; each Ethernet port: DHCP/static, VLAN, label Internet/Test) changes it with a 90-second automatic revert unless you press Keep. Covers Pi 4 + Pi 5, Raspberry Pi OS 64-bit Bookworm + Trixie, fully offline (own apt repos + wheels + Nexmon drivers), plus the Claude Code steps (Wi-Fi = internet path, one-time login, log out before leaving, Remote Control, Ask Claude how-to). Guide: **docs/INSTALL-OFFLINE.md**. Tested with the network OFF in Bookworm and Trixie containers under real systemd.
-
-## Status
-Formal spec + architecture: docs/SPEC.md (2026-11-03). MVP built 2026-11-03 (phase 2) + traffic generator (phase 4); install on Pi: scripts/install-pi.sh + docs/INSTALL-PI.md, verified on arm64 (QEMU container, phase 3); NOT yet tested on a real Pi: serial/UDP/TCP/GOOSE L2+L3 trip tests, web UI, profiles/sessions/export, netem. Test evidence: checks.md, RESULT.md, docs/screenshots/. Run: `venv/bin/python -m traffic_tester --port 8080 --data-dir ./data`; tests: `venv/bin/python -m pytest` and `scripts/e2e-local.sh`. See TODO.md / DECISIONS.md.
-
+*No licence file is included yet.*

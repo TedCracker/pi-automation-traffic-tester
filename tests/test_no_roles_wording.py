@@ -77,11 +77,11 @@ def test_report_and_csv_name_the_pis():
     assert "Sent by" in txt and "lab-one" in txt and "lab-two" in txt and "answered by" in txt and "group 7" in txt
     assert not OLD.search(txt.replace("Pi Automation Traffic Tester", "")), OLD.search(txt)
     csv = st.messages_csv(r1).splitlines()[0]
-    assert csv.startswith("seq,phase,idle_gap_s,t_send_ms") and csv.endswith("group_id,leg,sender,answering_pi,basis,mark")
-    assert st.intervals_csv(r2).splitlines()[0].endswith("group_id,leg,sender,answering_pi,basis,mark")
+    assert csv.startswith("seq,phase,idle_gap_s,t_send_ms") and csv.endswith("group_id,leg,sender,answering_pi,basis,radio_recorded,radio_char_timeout_ms,radio_max_packet_bytes,radio_serial_mode,radio_note,started_local,ended_local,time_tag,mark")
+    assert st.intervals_csv(r2).splitlines()[0].endswith("group_id,leg,sender,answering_pi,basis,radio_recorded,radio_char_timeout_ms,radio_max_packet_bytes,radio_serial_mode,radio_note,started_local,ended_local,time_tag,mark")
     st.add_messages(r2, [{"seq": 1, "phase": "main", "idle_gap_s": None, "t_send_ms": 0, "rtt_us": 1000, "up_us": 500, "down_us": 500, "status": "ok"}])
     row = st.messages_csv(r2).splitlines()[1]
-    assert row.endswith(",7,lab-two → lab-one,lab-two,lab-one,up,"), row
+    assert row.find(",7,lab-two → lab-one,lab-two,lab-one,up,") > 0, row
     js = st.run_json(r2)
     assert js["group_id"] == 7 and js["leg"]["label"] == "lab-two → lab-one" and js["summary"]["endpoints"]["dest"] == "lab-one"
 

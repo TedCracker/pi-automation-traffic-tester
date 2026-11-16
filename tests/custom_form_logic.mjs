@@ -44,6 +44,22 @@ c = mk('  Spaces  '); c.p.builtin = true; const prof = C.toProfile(c); assert.eq
 // editing keeps fields the form does not show (nothing is lost on re-save)
 const e = C.editDraft({ id: 9, ...lim.defaults, name: 'E', gen: { a: 1 }, goose: { ...lim.defaults.goose, appid_a: 77 }, interval_ms: 25, duration_s: 7200 });
 assert.equal(e.id, 9); assert.equal(e.ui.lenUnit, 'hours'); assert.equal(e.ui.len, 2); assert.equal(C.toProfile(e).goose.appid_a, 77); assert.deepEqual(C.toProfile(e).gen, { a: 1 });
+// Mirrored Bits over serial defaults to 38400 baud; the plain serial test stays at 19200; a speed the user set (or a saved test) is never changed
+{
+  const d = mk(); d.p.transport = 'serial'; C.derive(d);
+  assert.equal(d.p.serial.baud, 19200, 'plain serial test: 19200');
+  d.p.mode = 'mirrored'; C.derive(d); assert.equal(d.p.serial.baud, 38400, 'Mirrored Bits over serial: 38400');
+  d.p.mode = 'echo'; C.derive(d); assert.equal(d.p.serial.baud, 19200, 'back to the plain test: 19200 again');
+  d.p.mode = 'mirrored'; d.p.transport = 'udp'; C.derive(d); assert.equal(d.p.mirrored.rate_baud, 19200, 'UDP Mirrored Bits keeps its own rate');
+  d.p.transport = 'serial'; C.derive(d); assert.equal(d.p.serial.baud, 38400, 'switching the link to serial in Mirrored Bits mode: 38400');
+  const u = mk(); u.p.transport = 'serial'; u.p.mode = 'mirrored'; C.derive(u);
+  C.applyField(u, { dataset: { k: 'serial.baud', t: 'num' }, value: '19200', type: 'number' }); assert.equal(u.p.serial.baud, 19200, 'a speed the user picked stays');
+  u.p.mode = 'echo'; u.p.mode = 'mirrored'; C.derive(u); assert.equal(u.p.serial.baud, 19200);
+  const sv = C.editDraft({ id: 3, ...lim.defaults, name: 'Saved', transport: 'serial', mode: 'mirrored', serial: { ...lim.defaults.serial, baud: 19200 } }); C.derive(sv);
+  assert.equal(sv.p.serial.baud, 19200, 'a saved Mirrored Bits test keeps its 19200');
+  const sv2 = C.editDraft({ id: 4, ...lim.defaults, name: 'Saved2', transport: 'serial', mode: 'echo', serial: { ...lim.defaults.serial, baud: 38400 } }); sv2.p.mode = 'mirrored'; C.derive(sv2);
+  assert.equal(sv2.p.serial.baud, 38400);
+}
 console.log('custom form logic: all assertions passed');
 // a half-typed value in a link type that is not chosen must not block saving (it goes back to the default)
 { const d = mk(); d.p.serial.baud = 100; d.p.net.port = 99999; d.p.transport = 'serial'; const q = C.toProfile(d);
@@ -53,11 +69,11 @@ console.log('hidden-settings repair ok');
 
 // ---- Mirrored Bits mode (1.1.3): no send rate, its own fields and sentence; saving an echo test repairs a half-typed mirrored value
 {
-  const m = mk('MB'); m.p.mode = 'mirrored'; m.p.transport = 'serial'; m.p.serial.baud = 19200; C.derive(m);
+  const m = mk('MB'); m.p.mode = 'mirrored'; m.p.transport = 'serial'; C.derive(m);
   assert.equal(Object.keys(C.validate(m, [])).length, 0, 'a mirrored default is valid (no send rate to check)');
   assert.equal(m.p.frame, 'compact'); assert.deepEqual(m.p.idle_gaps_s, []);
   const ms = C.summary(m);
-  assert.match(ms, /19,200 baud \(one every 2\.08 ms/); assert.match(ms, /not SEL wire-compatible/); assert.match(ms, /every 2 s a test bit is flipped/); assert.match(ms, /RBAD never asserts/); assert.ok(!/Pi A|Pi B|Responder/.test(ms), 'no fixed-role wording');
+  assert.match(ms, /38,400 baud \(one every 1\.04 ms/); assert.match(ms, /not SEL wire-compatible/); assert.match(ms, /every 2 s a test bit is flipped/); assert.match(ms, /RBAD never asserts/); assert.ok(!/Pi A|Pi B|Responder/.test(ms), 'no fixed-role wording');
   const bad = (mut) => { const d = mk(); d.p.mode = 'mirrored'; mut(d); C.derive(d); return C.validate(d, []); };
   assert.ok(bad(d => d.p.mirrored.trip_every_s = 0)['mirrored.trip_every_s']);
   assert.ok(!bad(d => { d.p.mirrored.trip_every_s = 0.5; d.p.timeout_ms = 1000; })['mirrored.trip_every_s'], 'the test bit is not a request/answer trip any more: no give-up-time rule');

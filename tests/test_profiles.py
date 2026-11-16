@@ -78,3 +78,15 @@ def test_sessions_runs_clear_and_interrupted_recovery():
     assert s2.get_run(rid)["status"] == "interrupted"
     s2.clear_session(sess["id"])
     assert s2.list_runs(sess["id"]) == [] and s2.run_messages(rid) == []
+
+
+def test_mirrored_bits_serial_default_is_38400():
+    """Alex 2026-11-15: 38400 is the default for Mirrored Bits over serial (real Pis, docs/e2e-real-pis-serial.md); plain serial tests stay at 19200,
+    and Mirrored Bits over UDP / TCP keeps its own rate."""
+    from traffic_tester.mbemu.status import Settings
+    ps = {p["name"]: p for p in P.builtin_presets()}
+    mb = ps["DER trip — Mirrored Bits mode"]
+    assert mb["mode"] == "mirrored" and mb["serial"]["baud"] == 38400
+    assert ps["DER trip test"]["serial"]["baud"] == 19200 and ps["Overnight soak"]["serial"]["baud"] == 19200
+    assert P.Profile(name="x").serial.baud == 19200 and P.Mirrored().rate_baud == 19200
+    assert Settings().baud == 38400

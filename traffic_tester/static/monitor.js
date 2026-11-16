@@ -12,11 +12,11 @@ export function renderMonitor(root, opts = {}) {
   root.innerHTML = `
     <div class="card"><div class="row sp"><h2>Link</h2><span class="muted" id="lastEv"></span></div>
       <div class="link"><div class="node" id="nodeA"><b>Sender</b><small class="muted">sends</small></div>
-        <div class="wire" id="wire"><i></i><i class="rev"></i></div>
+        <div class="wire" id="wire"><span class="lane" data-l="request →"><i></i></span><span class="lane rev" data-l="← reply"><i class="rev"></i></span></div>
         <div class="node" id="nodeLink"><b>Link</b><small class="muted" id="linkTxt">idle</small></div>
-        <div class="wire" id="wire2"><i></i><i class="rev"></i></div>
+        <div class="wire" id="wire2"><span class="lane" data-l="request →"><i></i></span><span class="lane rev" data-l="← reply"><i class="rev"></i></span></div>
         <div class="node" id="nodeB"><b>Other end</b><small class="muted">answers</small></div></div>
-      <div class="wire-label">Green = on time · amber = late · red = lost or session down</div></div>
+      <div class="wire-label"><b style="color:var(--req)">Blue →</b> = request going out · <b style="color:var(--rep)">Purple ←</b> = reply coming back · turns amber if late, red if lost</div></div>
     <div class="card"><div class="row sp"><h2>Delay of each message ${tip('rtt')}</h2><span class="muted">dashed red line = your limit</span></div><div id="chart" class="chart"></div></div>
     <div class="card"><div class="row sp"><h2>Message bits ${tip('Each message carries 8 on/off bits (like Mirrored Bits). Top block: sent. Bottom block: coming back.')}</h2><span class="muted">newest on the right</span></div>
       <canvas id="bits" class="bits" width="1100" height="190"></canvas></div>`;

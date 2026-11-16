@@ -1,14 +1,14 @@
 :root{
   --bg:#f4f6f8;--panel:#fff;--panel2:#f8fafb;--text:#16202a;--muted:#5c6b7a;--line:#e2e8ee;
   --accent:#0f766e;--accent-ink:#fff;--accent-soft:#e0f2f0;
-  --pass:#15803d;--pass-soft:#dcfce7;--fail:#b91c1c;--fail-soft:#fee2e2;--warn:#b45309;--warn-soft:#fef3c7;
+  --pass:#15803d;--pass-soft:#dcfce7;--fail:#b91c1c;--fail-soft:#fee2e2;--warn:#b45309;--warn-soft:#fef3c7;--req:#2563eb;--rep:#9333ea;
   --shadow:0 1px 2px rgba(16,24,40,.06),0 4px 14px rgba(16,24,40,.06);--r:14px;
   --font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
 }
 [data-theme=dark]{
   --bg:#0d1319;--panel:#151d26;--panel2:#1a2430;--text:#e7edf3;--muted:#93a3b3;--line:#263341;
   --accent:#2dd4bf;--accent-ink:#04201c;--accent-soft:#12302d;
-  --pass:#4ade80;--pass-soft:#12301d;--fail:#f87171;--fail-soft:#3b1717;--warn:#fbbf24;--warn-soft:#3a2d0c;
+  --pass:#4ade80;--pass-soft:#12301d;--fail:#f87171;--fail-soft:#3b1717;--warn:#fbbf24;--warn-soft:#3a2d0c;--req:#60a5fa;--rep:#c084fc;
   --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.35);
 }
 *{box-sizing:border-box}
@@ -110,12 +110,19 @@ details summary{cursor:pointer;font-weight:700}
 .link{display:flex;align-items:center;justify-content:center;gap:0;padding:8px 0}
 .node{border:2px solid var(--line);background:var(--panel2);border-radius:14px;padding:14px 22px;text-align:center;min-width:120px;transition:border-color .2s,background .2s}
 .node b{display:block}.node small{display:block}
-.wire{position:relative;flex:1;max-width:340px;min-width:90px;height:56px;display:flex;flex-direction:column;justify-content:center;gap:8px}
-.wire i{display:block;height:5px;border-radius:5px;background:var(--pass);position:relative;overflow:hidden;transition:background .2s}
+.wire{position:relative;flex:1;max-width:340px;min-width:90px;height:64px;display:flex;flex-direction:column;justify-content:center;gap:16px}
+/* two lanes: blue = request (left -> right), purple = reply (right -> left); health overrides the colour */
+.lane{position:relative;display:block;--c:var(--req);padding:0 9px 0 0}
+.lane.rev{--c:var(--rep);padding:0 0 0 9px}
+.lane::after{content:"";position:absolute;top:50%;right:0;transform:translateY(-50%);border-style:solid;border-width:6px 0 6px 10px;border-color:transparent transparent transparent var(--c);transition:border-color .2s}
+.lane.rev::after{right:auto;left:0;border-width:6px 10px 6px 0;border-color:transparent var(--c) transparent transparent}
+.lane[data-l]::before{content:attr(data-l);position:absolute;left:50%;transform:translateX(-50%);bottom:calc(100% + 1px);font-size:.68rem;font-weight:600;color:var(--c);white-space:nowrap;line-height:1}
+.lane.rev[data-l]::before{bottom:auto;top:calc(100% + 1px)}
+.wire i{display:block;height:5px;border-radius:5px;background:var(--c,var(--pass));position:relative;overflow:hidden;transition:background .2s}
 .wire i::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.7),transparent);transform:translateX(-100%);animation:flow 1.4s infinite linear}
 .wire i.rev::after{animation-direction:reverse}
-.wire.late i{background:var(--warn)}.wire.lost i,.wire.down i{background:var(--fail)}
-.wire.idle i{background:var(--line)}.wire.idle i::after{animation:none}
+.wire.late .lane{--c:var(--warn)}.wire.lost .lane,.wire.down .lane{--c:var(--fail)}
+.wire.idle .lane{--c:var(--line)}.wire.idle i::after{animation:none}
 .wire.down i::after,.wire.lost i::after{animation:none}
 .node.lost{border-color:var(--fail);background:var(--fail-soft)}.node.late{border-color:var(--warn)}
 .wire-label{text-align:center;font-size:.8rem;color:var(--muted)}
@@ -147,7 +154,7 @@ canvas.bits{width:100%;height:190px;display:block;background:var(--panel2);borde
 }
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 @media(max-width:620px){
-  .link{gap:0}.node{min-width:0;padding:10px 12px;font-size:.85rem}.wire{min-width:24px;max-width:none}
+  .link{gap:0}.node{min-width:0;padding:10px 12px;font-size:.85rem}.wire{min-width:24px;max-width:none}.lane[data-l]::before{display:none}
   .top{overflow:hidden}
   .ask-label{display:none}
   .card{padding:14px}

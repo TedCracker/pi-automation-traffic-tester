@@ -63,10 +63,10 @@ def test_exports_carry_the_job(st):
     st.set_job(t, JOB)
     st.set_job(g, {"site": "Lab", "note": "a, b"})
     head, row = st.messages_csv(t).splitlines()[:2]
-    assert head == "seq,phase,idle_gap_s,t_send_ms,rtt_ms,up_ms,down_ms,status,site,link_radio,by,note,group_id,leg,sender,answering_pi,basis,mark"
-    assert 'Utility,Site A · 5G router,Alex,"RSRP -95 dBm, light rain",' in row and row.endswith(",pi1 → pi2,pi1,pi2,rtt,")
+    assert head == "seq,phase,idle_gap_s,t_send_ms,rtt_ms,up_ms,down_ms,status,site,link_radio,by,note,group_id,leg,sender,answering_pi,basis,radio_recorded,radio_char_timeout_ms,radio_max_packet_bytes,radio_serial_mode,radio_note,started_local,ended_local,time_tag,mark"
+    assert 'Utility,Site A · 5G router,Alex,"RSRP -95 dBm, light rain",' in row and ",pi1 → pi2,pi1,pi2,rtt,no (radio packetization not recorded)," in row
     assert st.intervals_csv(t).splitlines()[0].endswith("status,site,link_radio,by,note,group_id,leg,sender,answering_pi,basis") is False   # intervals have no status column
-    assert st.intervals_csv(t).splitlines()[0].endswith("max_ms,site,link_radio,by,note,group_id,leg,sender,answering_pi,basis,mark")
+    assert st.intervals_csv(t).splitlines()[0].endswith("max_ms,site,link_radio,by,note,group_id,leg,sender,answering_pi,basis,radio_recorded,radio_char_timeout_ms,radio_max_packet_bytes,radio_serial_mode,radio_note,started_local,ended_local,time_tag,mark")
     gh, gr = st.gen_csv(g).splitlines()[:2]
     assert gh.endswith("rtt_avg_ms,site,link_radio,by,note,from_pi,to_pi,mark") and 'Lab,,,"a, b",pi1,pi2,' in gr
     assert st.run_json(t)["job"] == JOB

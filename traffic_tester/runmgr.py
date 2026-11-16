@@ -12,7 +12,7 @@ import time
 from collections import deque
 from typing import Optional
 
-from . import engine, factory, health, marks as MK, mbrun, orchestrate as OR, plan as PL, profiles as P, system
+from . import engine, factory, health, marks as MK, mbrun, orchestrate as OR, plan as PL, profiles as P, radio as RADIO, system
 from .reflector import Busy as PortBusy
 from .remote import RemoteTester
 from .gen import node as gnode, run as grun
@@ -132,6 +132,20 @@ class RunManager:
             system.wifi_powersave_off(w["interface"])                       # the user asked to keep it off: it is switched back after a reconnect or reboot
             w = system.wifi_path(host)
         return w
+
+    @staticmethod
+    def _radio_tags(profile: dict, summary: dict, wall0: float) -> None:
+        """What the radio was set to, when the run happened (local time, busy hours), and the data a nonstop stream of this test uses."""
+        try:
+            summary["radio"] = {**(profile.get("radio") or {}), "text": RADIO.radio_text(profile.get("radio")), "recorded": RADIO.radio_recorded(profile.get("radio"))}
+            summary["when"] = RADIO.coverage(wall0, time.time())
+            m = summary.get("mirrored") or {}
+            if profile["transport"] == "serial" and m.get("frame_mode"):
+                fb = m.get("bytes") or {}
+                summary["usage"] = {**RADIO.usage_estimate(int(m.get("baud") or profile["serial"]["baud"]), RADIO.FRAME_BYTES, float(profile["interval_ms"]), (profile.get("radio") or {}).get("serial_mode") or ""),
+                                    "actual": fb}
+        except Exception:  # noqa
+            logging.getLogger("tt").exception("radio tags")
 
     def busy(self) -> bool:
         return any(l.thread is not None and l.thread.is_alive() and not l.done for l in self.legs)
@@ -290,6 +304,7 @@ class RunManager:
         logging.getLogger("tt").info("Test #%s started: %s (%s)%s", rid, profile.get("name"), profile.get("kind", "trip"),
                                      f" [{leg.leg.label}]" if leg.leg else "")
         buf_m, buf_i, last = [], [], [time.monotonic()]
+        wall0 = time.time()
 
         def flush(force=False):
             if buf_m and (force or len(buf_m) >= 200 or time.monotonic() - last[0] > 1.0):
@@ -412,6 +427,7 @@ class RunManager:
                     summary["error"] = t.error
                 if isinstance(summary, dict) and profile["kind"] == "trip":
                     summary["endpoints"] = self._endpoints(profile, leg, controller)
+                    self._radio_tags(profile, summary, wall0)
                     w = path_warning(profile["net"]["peer_host"]) if profile["transport"] in ("udp", "tcp") else None
                     if w:                                          # e.g. the traffic went over the Wi-Fi access point / the management port
                         summary.setdefault("warnings", []).append(w)

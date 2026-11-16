@@ -592,7 +592,8 @@ class Store:
 
     # ---- exports
     _JOB_HEAD = ["site", "link_radio", "by", "note"]                      # job info: the same on every row, before the columns older tools read from the end
-    _LEG_HEAD = _JOB_HEAD + ["group_id", "leg", "sender", "answering_pi", "basis"]
+    _RADIO_HEAD = ["radio_recorded", "radio_char_timeout_ms", "radio_max_packet_bytes", "radio_serial_mode", "radio_note", "started_local", "ended_local", "time_tag"]
+    _LEG_HEAD = _JOB_HEAD + ["group_id", "leg", "sender", "answering_pi", "basis"] + _RADIO_HEAD
 
     def _job_cols(self, r: Optional[dict]) -> list:
         j = (r or {}).get("job") or {}
@@ -603,7 +604,12 @@ class Store:
         r = self.get_run(rid) or {}
         lg = r.get("leg") or ((r.get("summary") or {}).get("endpoints")) or {}
         gid = r.get("group_id")
-        return self._job_cols(r) + ["" if gid is None else gid, lg.get("label") or "", lg.get("tester") or lg.get("source") or "", lg.get("reflector") or lg.get("dest") or "", lg.get("basis") or ""]
+        rd = (r.get("profile") or {}).get("radio") or {}
+        w = (r.get("summary") or {}).get("when") or {}
+        radio = ["yes" if any(rd.get(k) not in (None, "", 0) for k in ("char_timeout_ms", "max_packet_bytes", "serial_mode", "note")) else "no (radio packetization not recorded)",
+                 "" if rd.get("char_timeout_ms") is None else rd["char_timeout_ms"], "" if rd.get("max_packet_bytes") is None else rd["max_packet_bytes"], rd.get("serial_mode") or "", rd.get("note") or "",
+                 w.get("start_local", ""), w.get("end_local", ""), w.get("tag", "")]
+        return self._job_cols(r) + ["" if gid is None else gid, lg.get("label") or "", lg.get("tester") or lg.get("source") or "", lg.get("reflector") or lg.get("dest") or "", lg.get("basis") or ""] + radio
 
     def _marks(self, rid: int) -> list:
         """The ⚑ marks dropped during the run (summary.marks): the CSV "mark" column names the one in force on each row."""

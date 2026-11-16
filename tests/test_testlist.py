@@ -38,7 +38,7 @@ def test_builtin_edit_is_an_override_and_reset_restores_everything(d):
     row = s.db.execute("SELECT override_json, json FROM profiles WHERE id=?", (p["id"],)).fetchone()
     assert json.loads(row["override_json"]) == {"name": "Feeder 12 trip", "interval_ms": 25, "serial": {"baud": 9600}}     # only what changed
     r = s.reset_profile(p["id"])
-    assert r["name"] == "DER trip test" and r["interval_ms"] == 50 and r["serial"]["baud"] == 19200 and not r["edited"]
+    assert r["name"] == "DER trip test" and r["interval_ms"] == 10 and r["serial"]["baud"] == 19200 and not r["edited"]
     assert s.db.execute("SELECT override_json FROM profiles WHERE id=?", (p["id"],)).fetchone()["override_json"] is None
 
 

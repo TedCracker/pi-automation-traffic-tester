@@ -1,6 +1,6 @@
 # Pi Automation Traffic Tester — Specification & Architecture
 
-Version 1.0 · 2026-11-03, rewritten for 1.2.0 (no fixed roles) 2026-11-12 · Source: README.md spec items + DECISIONS.md.
+Version 1.0 · 2026-11-03, rewritten for 1.2.0 (no fixed roles) 2026-11-12 · Source: docs/DETAILS.md spec items + the maintainer's private notes
 
 ## 1. Purpose
 
@@ -23,7 +23,7 @@ Version 1.0 · 2026-11-03, rewritten for 1.2.0 (no fixed roles) 2026-11-12 · So
 
 ## 2. Pis, names, discovery and endpoints
 
-**One app, no roles (1.2.0).** The same app is installed on every Pi. There is no "Pi A / Pi B" and no "Tester / Responder": every Pi can start tests, answer the tests of other Pis, and be controlled from another Pi's web page. Each **test** names where it sends from, where it sends to and in which direction. The model is iperf3 / a Cisco IP SLA responder: identical endpoints, an always-on reflector, the test decides who plays which part. Design notes: `docs/design/ROLES-DESIGN.md`, DECISIONS 2026-11-12.
+**One app, no roles (1.2.0).** The same app is installed on every Pi. There is no "Pi A / Pi B" and no "Tester / Responder": every Pi can start tests, answer the tests of other Pis, and be controlled from another Pi's web page. Each **test** names where it sends from, where it sends to and in which direction. The model is iperf3 / a Cisco IP SLA responder: identical endpoints, an always-on reflector, the test decides who plays which part. Design notes: the maintainer's private notes, DECISIONS 2026-11-12.
 
 ### 2.1 Name and identity
 - Each Pi has a stable **id** (8 hex characters, created at first start, never changes), a friendly **name** (setting `pi_name`; default = the host name, e.g. `pi1`; 1-32 characters `A-Z a-z 0-9 space . _ -`, first one a letter or digit; editable in Settings → This Pi; `PUT /api/pi`, empty = host name) and the time it was first set up (`setup_at`, UTC; used by the time-source rule, §2.6). The name is also the Wi-Fi name (SSID) when the Pi is an access point.
@@ -250,14 +250,14 @@ All integers big-endian. CRC = CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF) ove
 
 | Preset | Transport | Key settings |
 |---|---|---|
-| **DER trip test** | Serial 19200 8N1, compact | 50 ms interval, 10 min, 60 ms threshold, p99, loss ≤ 0.1 %, idle gaps 5 s/30 s/2 min ×3 |
+| **DER trip test** | Serial 19200 8N1, compact | 10 ms interval, 10 min, 60 ms threshold, p99, loss ≤ 0.1 %, idle gaps 5 s/30 s/2 min ×3 |
 | DER trip test (IP) | UDP, extended | same timing over the radio's Ethernet port |
 | Quick link check | UDP | 20 ms interval, 60 s, no idle probes |
 | TCP session test | TCP | 50 ms, 10 min, reconnect timing, keepalive on |
 | Overnight soak | Serial | 100 ms interval, 12 h, idle interleaved incl. 10 min gap, 10 s summaries |
 | Back-to-back baseline | Serial | null-modem, 20 ms, 60 s, threshold 10 ms — measures local Pi + adapter overhead |
 
-19200 baud / 50 ms: Mirrored Bits runs 9600–38400 baud and sends continuously; 50 ms keeps radio load trivial (140 B/s each way) while giving 12,000 samples in 10 min. Users can change it in a duplicate.
+19200 baud / 10 ms (release 1.5.6; was 50 ms): 10 ms gives 60,000 samples in 10 min (~700 B/s each way) and leaves radio headroom; on the real Pis latency is set by the baud rate, not the period (see the maintainer's private notes). Mirrored Bits runs 9600–38400 baud and sends continuously. Users can change it in a duplicate.
 
 ### 6.3 Rules
 - Built-ins live in code, are seeded into the DB with `builtin=1` on start, cannot be edited/deleted (API returns 403), only duplicated ("DER trip test (copy)").
@@ -265,7 +265,7 @@ All integers big-endian. CRC = CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF) ove
   `{"format":"traffic-tester-profiles","schema_version":1,"exported_at":"…","app_version":"…","profiles":[…]}`.
 - **Import**: validates format, schema version and every field (unknown fields ignored, missing → defaults, out-of-range → reject with message). Imported profiles are never built-in; name clash → "Name (imported)".
 
-### 6.4 New test: one page in test-set order (1.4.0; replaces the 1.1.2 custom form and the three-step wizard; docs/WIZARD-PROPOSAL.md, Alex 2026-11-12)
+### 6.4 New test: one page in test-set order (1.4.0; replaces the 1.1.2 custom form and the three-step wizard; the maintainer's private notes, Alex 2026-11-12)
 - Setup is the list of tests. **＋ New test**, **▶ Run** and **Edit** open one page (`static/newtest.js`) set up from the Pi you are on, four rows that open and close, each closed to a one-line summary:
   ① **Port** — chips for this Pi's real ports (`GET /api/testports`: Ethernet, USB-Ethernet, Wi-Fi, serial; link, address, speed, "you are connected here") plus **Automatic** (default for IP: the port on the far Pi's network, else the Pi's own routing). Ports without a link sit behind "＋ N more ports". Serial adds speed chips 9600 / 19200 / 38400 / Other.
   ② **Protocol** — filtered by the port: serial → Serial, Mirrored Bits; IP → UDP, TCP, Routed GOOSE, Mirrored Bits over UDP / TCP; wired Ethernet also GOOSE (L2). Unavailable ones are greyed out with the reason.
@@ -300,7 +300,7 @@ Source of truth: **`docs/MIRRORED-BITS-SPEC.md`** (his words, verbatim). This se
 - **API.** `GET /api/mb/live` (this end + the other end through ITS API + warnings), `GET /api/mb/reflect`, `POST /api/mb/tmb|impair|settings|selftest`, `GET /api/mb/events.csv`, `GET|POST /api/mb/io[/gpio]`, `GET /api/runs/{id}/export.csv?kind=mbevents`.
 - **Live view.** Two end cards (tap a "Sends" square to flip that bit on that Pi), two lanes of message chips driven by the real traffic (sampled for display; rejected ones red with the reason on tap, missing ones as gaps, the lane greys out when ROK=0), Break link and impairment chips, then Numbers / Charts / Event log / Settings / How it works. Phone portrait stacks the cards with vertical lanes. `requestAnimationFrame`, paused while the tab is hidden; the far end is polled once per 250 ms by the Pi that runs the test.
 - **Old results.** Tests saved by the 1.1.3 mode (no `mirrored.emulator`) keep their old result card and PDF section.
-- **Load.** See checks.md (arm64 / QEMU figures at 38400 both ways).
+- **Load.** See the maintainer's private notes (arm64 / QEMU figures at 38400 both ways).
 
 ## 7. Storage, sessions, export
 
@@ -317,6 +317,16 @@ Source of truth: **`docs/MIRRORED-BITS-SPEC.md`** (his words, verbatim). This se
 - **Flash drive**: detect mounted removable filesystems under `/media/*` and `/media/*/*` (from `/proc/mounts`); "Save to USB drive" writes the ZIP there and syncs. No drive → button disabled with "Plug in a USB drive".
 - **Report builder (PDF built in phase 4; e-mail still later)**: pick any saved sessions/runs → PDF (reportlab: cover, summary table, per-run verdict, tables and charts for trip tests and generator runs; `GET /api/report.pdf?run_ids=…|session_id=…`, "PDF report" buttons in Results); email via SMTP settings entered once (password stored in the DB, readable only by the service user).
 
+
+#### 6.6.1 Trip frame codec + "DER transfer trip — Orbit radio (2 s budget)" (1.6.0; Alex 2026-11-15, his Claude-AI design "DER Transfer Trip 2-Second Budget")
+- **Codec `trip`** (`codec.TripCodec`, chosen per test by `mirrored.codec`; SimCodec stays the default and unchanged). 19 characters: sync+ID (`101`+5-bit ID, shared resync logic), 8 status bits, flags (bit0 = echo valid), 16-bit sequence (wraps 65535 -> 0), send time (sender's monotonic clock, **microseconds, 32 bit**, wraps every 71.6 min; only differences are used), echo of the last good frame heard (seq + its send time) + **hold time** (us, 16 bit, 65535 = too long, no sample), CRC-16/CCITT-FALSE over the first 17 characters. Emulator-to-emulator only, labelled not SEL wire-compatible. One frame at 19200 8N1 = 9.9 ms (about 100/s each way); 4.95 ms at 38400.
+- **Receive.** Bad CRC -> reject reason `crc` (counted, ROK drops like any bad frame). Sequence gaps = exact lost frames (also counts frames that arrived damaged); repeats and old frames are counted and ignored (not a sign of life); after 10 min of silence the 16-bit number is ambiguous, so the stream is simply rejoined. After a bad frame the framer assumes a flipped bit; if the next one is bad too it slides one character at a time to the next frame that passes its CRC (no storm of rejects after a lost character).
+- **Round trip, no clock sync:** rtt = (now - echoed send time) - hold time, on every new echo, at both ends. Kept in a fixed-size histogram (`LatHist`, 0.05 ms buckets to 2 s, exact min/max/mean, percentiles rounded up): p50 / p95 / p99 / **p99.9** / max for any run length. Echo-bit method is not used with this codec, so TMB8 is free.
+- **Security:** RMB PU/DO default 2 in the preset (a bit changes only after two matching good frames in a row); ROK / RBAD / CBAD unchanged.
+- **Trip:** the substation Pi flips TMB1 every 2 s; the DER Pi logs when it sees each change (`rmb_changes`). One-way only when the clocks are trustworthy, else round trip / 2, labelled. **GPS one-way: not built** (`Emulator._one_way_hook`; UI/PDF line "one-way needs GPS time").
+- **Pass rule:** `rule.percentile` accepts 99.9; with this codec the verdict judges the **round trip** at that percentile against `threshold_ms` (200), plus frames lost % (`max_loss_pct`), ROK down % and RBAD.
+- **Long runs.** In memory: histogram + capped lists (event log 100 000, flips/changes 50 000, thinned samples 200 000) = bounded, under about 50 MB. On the SD card nothing is stored per frame: one summary (event log capped at 5000 lines, under 1 MB) + about 1500 chart rows + one roll-up row per minute on runs over an hour (1440 rows a day, about 0.1 MB a day). At 19200 baud about 8.6 million frames a day are summarised into that. The run lives in the app service, not the browser.
+- **Preset** `DER transfer trip — Orbit radio (2 s budget)`: serial 19200, mirrored, `trip` codec, PU/DO 2, trip bit every 2 s, RTT_MAX 200 ms, limit 200 ms round trip at p99.9, 24 h; ends named "Substation relay (SEL-351/751/651R class)" and "DER relay (SEL-700GT class)" (`Settings.role_names`). The older "DER trip — Mirrored Bits mode" preset is unchanged.
 ### 7.5 Mark (1.4.0)
 - **⚑ Mark** left of Stop on every test kind: `POST /api/runs/{rid}/mark {name?}` (any link's run id; 409 when nothing runs; at most `marks.MAX_MARKS`). Stored as `summary.marks` `[{n, t_s, name, at}]` on every link; a `mark` event goes to the live screen.
 - From a mark on, each state event carries `since` (sent, lost, late, now / p50 / p99 / max) counted from the mark; the Run screen switches **Since ⚑N / Whole test** (the other figure in small print). The verdict is always the whole test; nothing is deleted.
@@ -421,7 +431,7 @@ FastAPI + uvicorn (asyncio)            ── static SPA (vendored, no CDN)
   5. Headless browser screenshots of each tab during a live run → `docs/screenshots/`.
 - **arm64**: QEMU binfmt + `debian:bookworm --platform linux/arm64`: run install steps, start app directly, hit the API, run unit tests and a pty loopback test; evidence includes `uname -m` = `aarch64`.
 - **Real Pi** (after delivery): back-to-back baseline over null-modem, then the radio link.
-- Results recorded in `checks.md` (requirement | pass/fail/unresolved | evidence).
+- Results recorded in the maintainer's private notes (requirement | pass/fail/unresolved | evidence).
 
 ## 12. Open questions (need Alex)
 - 5G radio RJ45 serial pinout (affects cable choice; not app code).
@@ -507,7 +517,7 @@ Per stream: **rate** (`pps` or `mbps`, counted on the Ethernet frame without FCS
 
 **Hardware-only verification (cannot be done on a PC):** real USB-NIC inline throughput and offload behaviour, link-state passthrough on real PHYs, Wi-Fi monitor mode / channel hopping, FTDI timestamp accuracy on the wire, passive RS-232/RS-485 tap electrical behaviour, SPAN mirroring on a real switch.
 
-**Built and checked (2026-11-03).** Ethernet/Wi-Fi capture = `dumpcap`; inline tap = Linux bridge (`ttbr0`: no IP, STP off, `group_fwd_mask 0xfff8` so LLDP and other link-local frames cross, offloads off, optional link-state passthrough by taking the opposite port down/up and probing); serial tap = Python; all of it driven as an unprivileged user with ambient capabilities. Checked with the real tools in an isolated Debian Bookworm container (dumpcap/tshark 4.0.17, veth + namespaces) — see checks.md. Not verifiable without hardware: see the list above.
+**Built and checked (2026-11-03).** Ethernet/Wi-Fi capture = `dumpcap`; inline tap = Linux bridge (`ttbr0`: no IP, STP off, `group_fwd_mask 0xfff8` so LLDP and other link-local frames cross, offloads off, optional link-state passthrough by taking the opposite port down/up and probing); serial tap = Python; all of it driven as an unprivileged user with ambient capabilities. Checked with the real tools in an isolated Debian Bookworm container (dumpcap/tshark 4.0.17, veth + namespaces) — see the maintainer's private notes Not verifiable without hardware: see the list above.
 
 **Mind the management connection.** The inline tap uses two wired ports; open the Pi's web page over Wi-Fi (or a third port). Pre-flight refuses to bridge the port your browser is using.
 
@@ -531,7 +541,7 @@ Per stream: **rate** (`pps` or `mbps`, counted on the Ethernet frame without FCS
 
 **API.** `GET /api/wifi/builtin/status`, `POST /api/wifi/builtin/restore`, `POST /api/wifi/builtin/inject-test` (409 with a message when it fails); profiles: `sniff.wifi.interface: "builtin"`, `sniff.wifi.builtin_ack`. **UI:** Sniffer → Wi-Fi: adapter list has *Built-in Wi-Fi of the Pi (Nexmon) — experimental*; selecting it shows the warning, the confirmation tick, the status line, *Restore normal Wi-Fi* and *Test packet injection*; preset *Wi-Fi monitor, Pi's built-in Wi-Fi (experimental)*.
 
-**Ethernet at layer 2 (confirmed complete).** *Inline tap* (Linux bridge `ttbr0`, no IP, link-local frames forwarded, VLAN tags kept, optional link-state passthrough, capture on the bridge or both legs) and *SPAN/mirror* both write pcapng with full Ethernet frames, are selectable as presets next to Wi-Fi (cards at the top of the Sniffer tab; the *Connection* section changes per mode) and are covered by the real-tool e2e (checks.md: SNIFF rows).
+**Ethernet at layer 2 (confirmed complete).** *Inline tap* (Linux bridge `ttbr0`, no IP, link-local frames forwarded, VLAN tags kept, optional link-state passthrough, capture on the bridge or both legs) and *SPAN/mirror* both write pcapng with full Ethernet frames, are selectable as presets next to Wi-Fi (cards at the top of the Sniffer tab; the *Connection* section changes per mode) and are covered by the real-tool e2e (the maintainer's private notes: SNIFF rows).
 
 **Offline package (Google Drive) - DONE 2026-11-03.** `scripts/pkg/build-offline-package.sh` assembles `pi-traffic-tester-offline-<version>-<date>.zip` = `INSTALL-OFFLINE.txt/.md` + `SHA256SUMS.txt` + the `.tar.gz` (Windows opens the zip natively; the tar.gz keeps Linux permissions and needs no `unzip` on the Pi). Inside: `app/`, `apt-bookworm/` + `apt-trixie/` (local flat apt repos: every arm64 `.deb` of the installer's packages with a transitive dependency closure, plus the base upgrades that version-locked packages need), `wheels/` (aarch64, Python 3.11 + 3.13), `nexmon/` (prebuilt drivers for 23 Pi 5 kernels: Bookworm 6.6/6.12, Trixie 6.18; firmware; patched source + `build-on-pi.sh`), `install-offline.sh`, `SHA256SUMS`. `install-pi.sh --offline <folder>` picks the repo by `VERSION_CODENAME`, refuses 32-bit OS and unknown releases with a plain message. Pi 4 installs the tester (Nexmon is Pi 5 only). Claude Code is not bundled (proprietary licence, updates): installed once over Wi-Fi with `--with-claude`.
 
@@ -563,19 +573,19 @@ Per stream: **rate** (`pps` or `mbps`, counted on the Ethernet frame without FCS
 
 **Install.** `install-pi.sh [--with-claude] [--no-net-split]` → `scripts/install-claude.sh`: records the app in git (always), net split (always), and with `--with-claude`: Anthropic signed apt repo (fingerprint `31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE` checked), tmux, contained dirs, ownership, Remote Control units. Uninstall forgets the sign-in and undoes the split. Re-install keeps the git history.
 
-**Not verified without real hardware/account** (see checks.md): the live link-and-code sign-in with a real account, Remote Control's one-time prompts on the Pi's Claude Code version, the systemd path-unit behaviour, NetworkManager/dhcpcd behaviour on the Pi OS image, and a real chat round trip.
+**Not verified without real hardware/account** (see the maintainer's private notes): the live link-and-code sign-in with a real account, Remote Control's one-time prompts on the Pi's Claude Code version, the systemd path-unit behaviour, NetworkManager/dhcpcd behaviour on the Pi OS image, and a real chat round trip.
 
 
 ## 16. Full end-to-end test of the whole app (phase 7 — 2026-11-03)
-`scripts/e2e-full.sh` (add `--arm64` for the QEMU runs) runs every suite and prints one summary (`docs/e2e-full-summary.txt`). Two real app instances - two identical peers, told apart only by name and port - are exercised **in both directions**: by default the tests are started on the first and name the second as destination, `E2E_REVERSE=1` starts them on the second and names the first, for the whole serial/UDP/TCP/netem/GOOSE/generator suite; the suite also runs a both-ways-at-once test and a one-way test in each direction (clocks assumed synced on the same host).
+`scripts/e2e-full.sh` (add `--arm64` for the QEMU runs) runs every suite and prints one summary (the maintainer's private notes). Two real app instances - two identical peers, told apart only by name and port - are exercised **in both directions**: by default the tests are started on the first and name the second as destination, `E2E_REVERSE=1` starts them on the second and names the first, for the whole serial/UDP/TCP/netem/GOOSE/generator suite; the suite also runs a both-ways-at-once test and a one-way test in each direction (clocks assumed synced on the same host).
 | Suite | What it proves | Log |
 |---|---|---|
 | `pytest tests` | units: frames, metrics, engine, profiles, GOOSE (incl. R-GOOSE layout), generator, sniffer decoders, Wi-Fi helper, Claude, network split | docs/unit-tests-last.log |
-| `scripts/e2e-local.sh` | tests started on the first instance, the second as destination: serial (socat pty), UDP incl. one-way, TCP drop/reconnect, profiles/export/import, USB save, netem presets, GOOSE L2 + L3, generator (all stream types, impairment accuracy), PDF | docs/e2e-last.log |
-| `E2E_REVERSE=1 scripts/e2e-local.sh` | the same, started on the second instance | docs/e2e-reverse-last.log |
-| `scripts/e2e-sniff.sh` | real dumpcap/tshark/bridge in a Debian container: SPAN, inline tap, serial DNP3/Modbus tap, ring buffer, USB guard, PDF; **both Pis send UDP, GOOSE L2, R-GOOSE and a 2-stream generator both ways through the tap and tshark dissects every frame** | docs/e2e-sniff-last.log |
-| `scripts/e2e-netsplit.sh` | Wi-Fi = internet / Ethernet = test: 2 x 40 Mb/s of Claude-like traffic out of wlan0 changes nothing on the test port (bytes, delay, loss) A->B and B->A; a default route on a test port is flagged; offline works | docs/e2e-netsplit-last.log |
-| `scripts/e2e-claude-ui.sh` (both directions) | Ask Claude sidebar (open/resize/remember), reads state, starts/stops tests, saves settings, change card + undo, off/offline/not-signed-in messages, log out wipes everything and everything refuses, log in again | docs/e2e-claude-ui-*.log |
-| `scripts/e2e-ui-sweep.sh` | every read endpoint, all 7 tabs in a browser (no console errors), sessions, password, profiles, restart persistence - on both Pis | docs/e2e-ui-sweep-last.log |
+| `scripts/e2e-local.sh` | tests started on the first instance, the second as destination: serial (socat pty), UDP incl. one-way, TCP drop/reconnect, profiles/export/import, USB save, netem presets, GOOSE L2 + L3, generator (all stream types, impairment accuracy), PDF | the maintainer's private notes |
+| `E2E_REVERSE=1 scripts/e2e-local.sh` | the same, started on the second instance | the maintainer's private notes |
+| `scripts/e2e-sniff.sh` | real dumpcap/tshark/bridge in a Debian container: SPAN, inline tap, serial DNP3/Modbus tap, ring buffer, USB guard, PDF; **both Pis send UDP, GOOSE L2, R-GOOSE and a 2-stream generator both ways through the tap and tshark dissects every frame** | the maintainer's private notes |
+| `scripts/e2e-netsplit.sh` | Wi-Fi = internet / Ethernet = test: 2 x 40 Mb/s of Claude-like traffic out of wlan0 changes nothing on the test port (bytes, delay, loss) A->B and B->A; a default route on a test port is flagged; offline works | the maintainer's private notes |
+| `scripts/e2e-claude-ui.sh` (both directions) | Ask Claude sidebar (open/resize/remember), reads state, starts/stops tests, saves settings, change card + undo, off/offline/not-signed-in messages, log out wipes everything and everything refuses, log in again | the maintainer's private notes*.log |
+| `scripts/e2e-ui-sweep.sh` | every read endpoint, all 7 tabs in a browser (no console errors), sessions, password, profiles, restart persistence - on both Pis | the maintainer's private notes |
 | `scripts/arm64-check.sh`, `arm64-claude-check.sh` | install/uninstall on arm64, unit tests, the e2e suites under QEMU (netem and VLAN auxdata cannot run in qemu-user), the real Claude CLI | docs/arm64/ |
-**Only on real hardware** (listed honestly in RESULT.md): gigabit rates and real NIC offloads, USB-serial/RS-232/RS-485 adapters and taps, link-state passthrough on real PHYs, Wi-Fi monitor mode (USB adapter and built-in Nexmon), real radios/cellular link, chrony clock sync between two Pis, systemd service/boot/polkit, NetworkManager behaviour, shared-CPU effects of the Claude traffic on test timing, real Claude sign-in.
+**Only on real hardware** (listed honestly in the maintainer's private notes): gigabit rates and real NIC offloads, USB-serial/RS-232/RS-485 adapters and taps, link-state passthrough on real PHYs, Wi-Fi monitor mode (USB adapter and built-in Nexmon), real radios/cellular link, chrony clock sync between two Pis, systemd service/boot/polkit, NetworkManager behaviour, shared-CPU effects of the Claude traffic on test timing, real Claude sign-in.

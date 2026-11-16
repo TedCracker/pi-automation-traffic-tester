@@ -7,6 +7,7 @@ import { S, resetLive } from './state.js';
 import { loadCustomLimits, newDraft, editDraft, isDirty, derive, validate, toProfile, field, select, check, errEl, applyField, customData } from './custom.js';
 import { EP, loadPeers, peerOf, addPiSheet, rememberEndpoints } from './endpoints.js';
 import { mbFieldsHtml } from './mbsettings.js';
+import { radioFormHtml, loadUsage, usageBlock, usageKey, repeatSheet } from './radioui.js';
 import { wifiCheck, turnOff } from './wifi.js';
 
 const N = { c: null, mode: 'new', ports: [], goose: { ok: true }, portId: null, open: {}, checks: [], typed: false, root: null, cb: {}, seq: 0, timer: 0, far: {}, otherBaud: false, extras: null };
@@ -215,7 +216,7 @@ function trafficRow() {
   const len = `<label class="f"><span>Test length</span><div class="fieldrow"><input data-k="ui.len" data-t="num" type="number" step="any" inputmode="decimal" value="${Number.isFinite(c.ui.len) ? c.ui.len : ''}"><select data-k="ui.lenUnit" data-t="str">${lenUnits.map(u => `<option value="${u}" ${c.ui.lenUnit === u ? 'selected' : ''}>${u}</option>`).join('')}</select></div>${errEl('ui.len')}</label>`;
   const rate = `<label class="f"><span>Send a message every ${tip('interval')}</span><div class="fieldrow"><input data-k="ui.rate" data-t="num" type="number" step="any" inputmode="decimal" value="${Number.isFinite(c.ui.rate) ? c.ui.rate : ''}"><select data-k="ui.rateUnit" data-t="str"><option value="ms" ${c.ui.rateUnit === 'ms' ? 'selected' : ''}>ms</option><option value="hz" ${c.ui.rateUnit === 'hz' ? 'selected' : ''}>messages per second</option></select></div>${errEl('ui.rate')}</label>`;
   const pass = `${field(c, 'threshold_ms', mb ? 'Pass: bit transfer within (ms)' : 'Pass: delay within (ms)', { t: 'threshold' })}
-    ${select(c, 'rule.percentile', 'Judged on', [[50, 'Typical message (p50)'], [95, 'p95'], [99, 'p99 (recommended)'], [100, 'Slowest message (max)']], { t: 'rule', type: 'num' })}
+    ${select(c, 'rule.percentile', 'Judged on', [[50, 'Typical message (p50)'], [95, 'p95'], [99, 'p99 (recommended)'], [99.9, 'p99.9 (long runs)'], [100, 'Slowest message (max)']], { t: 'rule', type: 'num' })}
     ${field(c, 'rule.max_loss_pct', 'Loss allowed (%)', { t: 'loss' })}`;
   const imps = [['', 'None (use the real link)'], ...Object.keys(netem).map(k => [k, `${k}: ${netem[k]}`])];
   const nt = S.status.netem || {}, fixedFrame = p.one_way || GOOSE(t);
@@ -225,13 +226,13 @@ function trafficRow() {
         : `${field(c, 'goose.group_a', 'Group, first direction', { type: 'str' })}${field(c, 'goose.group_b', 'Group, other direction', { type: 'str' })}${field(c, 'goose.udp_port', 'UDP port')}${field(c, 'goose.ttl', 'TTL')}${field(c, 'goose.dscp', 'Priority (DSCP 0-63)', { t: 'dscp' })}${field(c, 'goose.unicast_peer', 'Unicast fallback address (optional)', { type: 'str' })}`;
   const hard = `${select(c, 'impairment', 'Simulate a bad link', imps, { t: 'netem', type: 'nul', disabled: !nt.ok, note: nt.ok ? '' : 'Not available here: ' + (nt.reason || 'not allowed on this install.') })}
     ${mb ? '' : `<label class="f"><span>Background load (Mb/s) ${tip('load')}</span><input data-k="load_mbps" data-t="num" type="number" step="any" inputmode="decimal" value="${Number.isFinite(p.load_mbps) ? p.load_mbps : ''}" ${IPT(t) ? '' : 'disabled'}>${IPT(t) ? '' : '<small class="why">Needs a UDP or TCP test.</small>'}${errEl('load_mbps')}</label>`}`;
-  const more = mb ? `${field(c, 'mirrored.trip_every_s', 'Flip the trip bit every (s)')}${t === 'serial' ? '' : field(c, 'mirrored.rate_baud', 'Message pace (same as baud)', { hint: '9600, 19200 or 38400, like a relay channel.' })}${field(c, 'mirrored.max_down_pct', 'ROK may be 0 (% of the time)')}${field(c, 'timeout_ms', 'Give up on a bit after (ms)', { t: 'timeout' })}${link}${hard}`
+  const more = mb ? `${field(c, 'mirrored.trip_every_s', 'Flip the trip bit every (s)')}${select(c, 'mirrored.codec', 'Message format', [['sim', 'SimCodec (4 characters, each bit 3 times)'], ['trip', 'Trip frame (sequence + timestamp + echo + CRC)']], { t: 'Both are our own formats, not SEL wire-compatible. The trip frame measures the round trip of every frame with no clock sync, counts lost frames exactly and frees TMB8.' })}${t === 'serial' ? '' : field(c, 'mirrored.rate_baud', 'Message pace (same as baud)', { hint: '9600, 19200 or 38400, like a relay channel.' })}${field(c, 'mirrored.max_down_pct', 'ROK may be 0 (% of the time)')}${field(c, 'timeout_ms', 'Give up on a bit after (ms)', { t: 'timeout' })}${link}${hard}`
     : `${field(c, 'timeout_ms', 'Give up after (ms)', { t: 'timeout' })}${select(c, 'frame', 'Message size', [['compact', 'Compact, 7 bytes'], ['extended', 'Extended, 40 bytes (timestamps)']], { disabled: fixedFrame, note: fixedFrame ? 'Fixed: this test needs the timestamps.' : '' })}
       ${field(c, 'ui.gaps', 'Quiet gaps to test (s, comma-separated)', { type: 'str', t: 'idle', hint: 'Empty = none. Example: 5, 30, 120.' })}${field(c, 'idle_repeats', 'Repeats per gap')}${select(c, 'idle_mode', 'Quiet checks happen', [['after', 'After the main test'], ['interleaved', 'Mixed in (soak)']])}
       ${p.direction === 'round_trip' ? check(c, 'one_way', 'Also time each direction (clocks must agree)', 'oneway') : ''}${link}${hard}`;
   const ex = N.extras && N.extras.pattern ? N.extras.pattern(c) : '';
   const body = ex && ex.replaces ? ex.html : `${ex ? ex.html : ''}<div class="grid g3">${mb ? '' : rate}${len}${pass}</div>
-    <details class="ntmore" id="ntMore" data-testid="nt-more"><summary>More options</summary><div class="grid g3" style="margin-top:12px">${more}</div>${mb ? mbFieldsHtml(p, (path, type) => ` data-k="${path}" data-t="${type}"`, t === 'serial') : ''}</details>`;
+    <details class="ntmore" id="ntMore" data-testid="nt-more"><summary>More options</summary><div class="grid g3" style="margin-top:12px">${more}</div>${mb ? mbFieldsHtml(p, (path, type) => ` data-k="${path}" data-t="${type}"`, t === 'serial') : ''}</details>${radioFormHtml(c, field, select, errEl)}`;
   return rowHtml('traffic', 4, mb ? 'Pass rule' : 'Traffic', trafficLine(p), true, body);
 }
 const checkRow = c => `<div class="check ${c.s}" data-testid="setup-check-row" ${c.id ? `data-check="${esc(c.id)}"` : ''}><div class="ic">${{ ok: '✓', warn: '!', bad: '✕', wait: '…' }[c.s]}</div><div style="flex:1"><b>${esc(c.title)}</b><small class="muted">${esc(c.text || '')}</small>${c.link ? `<div style="margin-top:6px"><a href="${esc(c.link.href)}" data-testid="${esc(c.link.testid || 'setup-check-link')}">${esc(c.link.label)}</a></div>` : ''}${c.fix ? `<div style="margin-top:6px"><button type="button" class="btn small" data-nt="${esc(c.fixAct)}" ${c.iface ? `data-iface="${esc(c.iface)}"` : ''} ${c.port ? `data-port="${esc(c.port)}"` : ''}>${esc(c.fix)}</button></div>` : ''}</div></div>`;
@@ -242,7 +243,7 @@ function barHtml() {
   const chips = wait ? '' : ok.map(c => `<span class="ntck ok">✓ ${esc(c.chip || c.title)}</span>`).join('') + warn.map(c => `<span class="ntck warn">! ${esc(c.chip || c.title)}</span>`).join('');
   return `${bad.length || warn.length ? `<div id="checks" data-testid="setup-checks">${[...bad, ...warn].map(checkRow).join('')}</div>` : `<div id="checks" data-testid="setup-checks" hidden>${cs.map(checkRow).join('')}</div>`}
     <div class="actionbar ntbar" data-testid="nt-bar"><div class="nthint"><span id="startHint" data-testid="nt-hint" class="${bad.length ? 'bad' : ''}">${esc(hint)}</span><div class="ntcks" data-testid="nt-checks">${chips}</div><div id="ntJob" data-testid="nt-job"></div></div>
-      <div class="row ntbtns"><button type="button" class="btn" data-nt="cancel" data-testid="nt-cancel">← Tests</button><button type="button" class="btn" data-nt="save" data-testid="nt-save" title="Keep this test in your list">💾 Save</button>
+      <div class="row ntbtns"><button type="button" class="btn" data-nt="cancel" data-testid="nt-cancel">← Tests</button><button type="button" class="btn" data-nt="save" data-testid="nt-save" title="Keep this test in your list">💾 Save</button><button type="button" class="btn" data-nt="repeat" data-testid="nt-repeat" title="Run this test again and again on a schedule (busy hours, weekends)" ${bad.length || wait ? 'disabled' : ''}>🔁 Repeat…</button>
       <button type="button" class="btn primary big" data-nt="start" id="quickStart" data-testid="nt-start" ${bad.length || wait ? 'disabled' : ''}>▶ Start</button></div></div>`;
 }
 function pageHtml() {
@@ -261,13 +262,21 @@ function paintErrs() {
 }
 function drawBar() { const b = $('#ntBar', N.root); if (b) { b.innerHTML = barHtml(); mountJob(); } }
 function mountJob() { const j = $('#ntJob', N.root); if (j && N.extras && N.extras.job) N.extras.job(j); }
+// the data-use table of a radio test comes from the Pi (one number source for the page, the results and the AI guide)
+function fillUsage(host) {
+  const p = N.c && N.c.p; if (!p || p.transport !== 'serial' || !$('#ntUsage', host)) return;
+  const key = usageKey(p);
+  loadUsage(p).then(d => { const el = $('#ntUsage', N.root); if (el && N.c && usageKey(N.c.p) === key) el.innerHTML = usageBlock(d, N.c.p); }).catch(() => {});
+}
 function draw() {
   const host = N.root; if (!host || !N.c) return;
   const a = document.activeElement, key = a && host.contains(a) && a.dataset ? (a.dataset.k || a.dataset.ntFar && 'far:' + a.dataset.ntFar) : null, pos = a && a.selectionStart != null && a.type !== 'number' ? a.selectionStart : null;
-  const more = $('#ntMore', host)?.open, y = window.scrollY;
+  const more = $('#ntMore', host)?.open, radioOpen = $('#ntRadio', host)?.open, y = window.scrollY;
   derive(N.c);
   host.innerHTML = pageHtml();
   if (more && $('#ntMore', host)) $('#ntMore', host).open = true;
+  if (radioOpen && $('#ntRadio', host)) $('#ntRadio', host).open = true;
+  fillUsage(host);
   if (N.extras && N.extras.mount) N.extras.mount(host, N.c, changed);
   paintErrs(); mountJob();
   if (key) { const el = key.startsWith('far:') ? $(`[data-nt-far="${key.slice(4)}"]`, host) : $(`[data-k="${key}"]`, host); if (el) { el.focus({ preventScroll: true }); if (pos != null && el.setSelectionRange) try { el.setSelectionRange(pos, pos); } catch { } } }
@@ -388,6 +397,12 @@ async function start(btn) {
     N.c = null; N.cb.started && N.cb.started(r);
   } catch (e) { toast(e.message, true, 8000); btn.disabled = false; clearTimeout(N.timer); runChecks(); }
 }
+async function repeatTest() {
+  const errs = paintErrs(), keys = Object.keys(errs);
+  if (keys.length) { N.open.traffic = true; draw(); return toast(`Fix the ${keys.length} marked field${keys.length > 1 ? 's' : ''} first.`, true, 6000); }
+  const p = toProfile(N.c), r = await repeatSheet(p);
+  if (r) { N.c = null; N.cb.closed && N.cb.closed(); }
+}
 async function cancel() {
   if (N.c && isDirty(N.c) && N.mode !== 'run' && !await confirmBox('Leave this test?', 'What you changed has not been saved.', 'Leave', true)) return;
   N.c = null; N.cb.closed && N.cb.closed();
@@ -398,7 +413,7 @@ async function onClick(ev) {
   if (a.getAttribute('aria-disabled') === 'true') { const why = a.title || $('small', a)?.textContent; if (why) toast(why, false, 6000); return; }
   if (act === 'toggle') { N.open[id] = !N.open[id]; draw(); if (N.open[id]) $(`[data-row="${id}"]`, N.root)?.scrollIntoView({ block: 'nearest' }); }
   else if (act === 'port') { choosePort(id); changed(); }
-  else if (act === 'baud') { if (id === 'other') N.otherBaud = true; else { N.otherBaud = false; p.serial.baud = +id; } changed(); }
+  else if (act === 'baud') { if (id === 'other') N.otherBaud = true; else { N.otherBaud = false; p.serial.baud = +id; } N.c.baudSet = true; changed(); }
   else if (act === 'allports') { N.allPorts = true; draw(); }
   else if (act === 'rescan') { a.disabled = true; await loadPorts(); changed(); }
   else if (act === 'proto') { const [t, mode] = id.split(':'); chooseProto(t, mode); changed(); }
@@ -411,6 +426,7 @@ async function onClick(ev) {
   else if (act === 'fixftdi') { try { const r = await api('/selfcheck', { method: 'POST', body: { port: a.dataset.port || 'auto', fix: true } }); toast(r.message, !r.ok, 7000); } catch (e) { toast(e.message, true); } await loadPorts(); changed(); }
   else if (act === 'wifioff') { a.disabled = true; await turnOff(a.dataset.iface); changed(0, false); }
   else if (act === 'save') save();
+  else if (act === 'repeat') repeatTest();
   else if (act === 'start') start(a);
   else if (act === 'cancel') cancel();
 }

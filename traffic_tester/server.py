@@ -22,6 +22,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from . import __version__, changelog, engine, factory, mbrun, plan as PL, orchestrate as OR, profiles as P, system
 from . import clock as CK, peers as PE
 from . import compare as CMP
+from . import radio as RADIO, repeats as RPT
 from .netcfg import api as netapi, watchdog as netwd
 from . import firstboot as FB, firstboot_api as fbapi
 from .reflector import Busy as ReflectorBusy, PortClaims, ReflectorService, DEFAULT_PORT as REFLECT_PORT
@@ -67,6 +68,7 @@ class AppState:
         self.gen_touched = time.monotonic()                       # when a controlling Pi last asked this Pi's generator node for anything
         self.services = OR.Services(self.me, self.peers, self.reflectors, self.claims)
         self.runs = RunManager(self.store, None, self.gen_node, self.services)
+        self.repeats = RPT.RepeatManager(self.store, lambda prof: self.runs.start(prof, None, controller="schedule"), lambda: self.runs.busy() or self.gen_node.busy())
         self.migrated = migrate_roles(self, role)
         self.tokens: set = set()
         self.secret = secrets.token_bytes(16)
@@ -173,6 +175,8 @@ def create_app(data_dir: str, role: Optional[str] = None) -> FastAPI:
         if os.environ.get("TT_NO_DEFAULT_REFLECTOR") != "1":
             st.reflectors.start_defaults()                  # every Pi answers UDP and TCP on the test port from the moment the app starts
         st.peers.start()
+        if os.environ.get("TT_NO_REPEATS") != "1":
+            st.repeats.start()                              # scheduled repeats survive a reboot: they are read back from the settings table
         if os.environ.get("TT_NO_DISCOVERY") != "1":
             st.discovery.start()
         bg3 = asyncio.create_task(clock_loop())
@@ -186,6 +190,7 @@ def create_app(data_dir: str, role: Optional[str] = None) -> FastAPI:
         bg3.cancel()
         if getattr(st, "fb_redirect", None):
             st.fb_redirect.shutdown()
+        st.repeats.shutdown()
         st.runs.stop()
         st.runs.wait(5)
         try:
@@ -636,6 +641,52 @@ def create_app(data_dir: str, role: Optional[str] = None) -> FastAPI:
                 st.store.set_job(i, job)
         return {"run_id": rid, "run_ids": st.runs.run_ids()}
 
+    # ------------------------------------------------------------ radio facts + scheduled repeats
+    @app.get("/api/radio/usage")
+    def radio_usage(baud: int = 19200, interval_ms: float = 10.0, serial_mode: str = "", frames_per_packet: int = 1):
+        """Data a nonstop stream uses each way (payload and over the air), plus what to set on the radio."""
+        return {**RADIO.usage_estimate(baud, RADIO.FRAME_BYTES, interval_ms, serial_mode, frames_per_packet), "advice": RADIO.advice(baud)}
+
+    @app.get("/api/repeats")
+    def repeats_list():
+        return st.repeats.list()
+
+    @app.post("/api/repeats")
+    def repeats_create(body: dict = Body(...)):
+        prof = body.get("profile")
+        if body.get("profile_id") is not None:
+            base = st.store.get_profile(int(body["profile_id"]))
+            if not base:
+                raise HTTPException(404, "No such profile")
+            base.pop("id", None)
+            prof = {**base, **(body.get("overrides") or {})}
+        if not prof:
+            raise HTTPException(422, "Give profile_id or profile.")
+        try:
+            pv = P.validate_profile(prof)
+            return st.repeats.create(pv, body.get("schedule") or {}, body.get("start_at"), str(body.get("name") or ""))
+        except (ValueError, RPT.BadSchedule) as e:
+            raise HTTPException(422, str(e))
+
+    @app.delete("/api/repeats/{rid}")
+    def repeats_delete(rid: str):
+        if not st.repeats.delete(rid):
+            raise HTTPException(404, "No such schedule")
+        return {"ok": True}
+
+    @app.post("/api/repeats/{rid}/stop")
+    def repeats_stop(rid: str):
+        if not st.repeats.stop(rid):
+            raise HTTPException(404, "No such schedule")
+        return {"ok": True}
+
+    @app.get("/api/repeats/{rid}/summary")
+    def repeats_summary(rid: str):
+        c = st.repeats.combined(rid)
+        if c is None:
+            raise HTTPException(404, "No such schedule")
+        return c
+
     @app.get("/api/wifi/powersave")
     def wifi_powersave_status(host: str = ""):
         """Is the path to `host` a Wi-Fi link with power saving on? (Setup pre-flight.)"""
@@ -839,8 +890,15 @@ def create_app(data_dir: str, role: Optional[str] = None) -> FastAPI:
         return _dl(st.store.session_zip(sid), "application/zip", f"session-{sid}.zip")
 
     @app.get("/api/report.pdf")
-    def report_pdf(run_ids: Optional[str] = None, session_id: Optional[int] = None, title: str = "Link test report"):
+    def report_pdf(run_ids: Optional[str] = None, session_id: Optional[int] = None, title: str = "Link test report", repeat_id: Optional[str] = None):
         from .report import build_report
+        comb = None
+        if repeat_id:                                             # every run of a scheduled repeat, with the combined summary on top
+            comb = st.repeats.combined(repeat_id)
+            if comb is None:
+                raise HTTPException(404, "No such schedule")
+            run_ids = ",".join(str(x["run_id"]) for x in comb["rows"]) or None
+            title = title if title != "Link test report" else f"Scheduled repeats: {comb['name']}"
         if run_ids:
             ids = _ints(run_ids)
         elif session_id:
@@ -849,7 +907,7 @@ def create_app(data_dir: str, role: Optional[str] = None) -> FastAPI:
             raise HTTPException(422, "Give run_ids or session_id.")
         if not ids:
             raise HTTPException(404, "No tests to put in the report.")
-        pdf = build_report(st.store, ids, title[:80], pi_name=st.me.name)
+        pdf = build_report(st.store, ids, title[:80], pi_name=st.me.name, repeat=comb)
         return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="report-{time.strftime("%Y%m%d-%H%M")}.pdf"'})
 
     # ------------------------------------------------------------ USB
@@ -1007,7 +1065,7 @@ def create_app(data_dir: str, role: Optional[str] = None) -> FastAPI:
     def mb_selftest(body: dict = Body(default={})):
         """Internal back-to-back self-test: two emulators in this process, PROTO A <-> PROTO B, watched live like a real channel."""
         try:
-            return _mb().start_selftest(float(body.get("duration_s", 60)), body.get("a"), body.get("b"), body.get("impair_a"), body.get("impair_b"), int(body.get("baud", 19200)))
+            return _mb().start_selftest(float(body.get("duration_s", 60)), body.get("a"), body.get("b"), body.get("impair_a"), body.get("impair_b"), int(body.get("baud", 38400)))
         except (ValueError, TypeError) as e:
             raise HTTPException(422, str(e))
         except RuntimeError as e:

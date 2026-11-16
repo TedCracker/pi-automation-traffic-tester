@@ -129,12 +129,20 @@ class Endpoint(BaseModel):
         return not self.host and self.pi in ("", "self")
 
 
+class Radio(BaseModel):
+    """What the radio's serial side (e.g. an MDS Orbit) was set to for this test.  Only recorded: the Pi never configures the radio.  All optional."""
+    char_timeout_ms: Optional[float] = Field(None, ge=0, le=10000)      # how long the radio waits after the last serial character before it sends a packet
+    max_packet_bytes: Optional[int] = Field(None, ge=1, le=65535)       # the most serial bytes it puts in one packet
+    serial_mode: Literal["", "tcp_client", "tcp_server", "udp", "udp_multicast", "other"] = ""
+    note: str = Field("", max_length=300)
+
+
 class Mirrored(BaseModel):
     """Mirrored Bits emulator (docs/MIRRORED-BITS-SPEC.md): both Pis send a full message every cycle and check every message they receive.
     `settings` holds the per-channel settings of THIS end (PROTO, TX_ID/RX_ID, counts, thresholds ... see mbemu.status.Settings); the answering Pi gets
     the mirror image automatically.  `impair` is the in-app impairment injector at the start of the test (it can be changed live)."""
-    rate_baud: int = 19200            # message speed over UDP / TCP (over serial the serial baud is used): 9600 / 19200 / 38400 like a relay channel
-    codec: str = "sim"                # SimCodec only: emulator-to-emulator, not SEL wire-compatible
+    rate_baud: int = 19200            # message speed over UDP / TCP (over serial the serial baud is used; the serial default for Mirrored Bits is 38400, see _trip_presets): 9600 / 19200 / 38400 like a relay channel
+    codec: str = "sim"                # "sim" (SimCodec, 3 copies of the bits) or "trip" (frame with sequence + timestamp + echo + CRC): both emulator-to-emulator, not SEL wire-compatible
     settings: Dict[str, Any] = Field(default_factory=dict)
     impair: Dict[str, Any] = Field(default_factory=dict)
     fail_after: int = Field(3, ge=1, le=1000)          # OLD (first Mirrored Bits mode): kept so older saved tests still open; no longer used
@@ -174,7 +182,7 @@ class Mirrored(BaseModel):
 
 
 class Rule(BaseModel):
-    percentile: Literal[50, 95, 99, 100] = 99
+    percentile: Literal[50, 95, 99, 99.9, 100] = 99
     max_loss_pct: float = Field(0.1, ge=0, le=100)
     include_idle: bool = True
     idle_threshold_ms: Optional[float] = Field(None, gt=0)
@@ -374,6 +382,7 @@ class Profile(BaseModel):
     leg_info: Optional[Dict[str, Any]] = None           # set by the planner on the test a Pi actually runs (who sends, who reflects, what is judged); never edited by hand
     mode: Literal["echo", "mirrored"] = "echo"          # echo = the source sends and the destination reflects (all older tests); mirrored = both ends send continuously
     mirrored: Mirrored = Mirrored()
+    radio: Radio = Radio()                              # the radio's serial packetization, recorded with every run (shown on Results, PDF, exports)
     serial: Serial = Serial()
     net: Net = Net()
     goose: Goose = Goose()
@@ -501,7 +510,7 @@ def builtin_presets() -> List[dict]:
 TRIP_INFO = {
  "DER trip test": {
   "what": "How quickly a small “trip” message gets across a serial link and back. It checks that a protection signal, like a breaker trip sent to a distributed energy resource (DER), arrives inside the time limit.",
-  "how": "The sending Pi (the one you press Start on, unless you Swap in From → To) sends a 7-byte message every 50 ms down the serial cable or radio. The Pi you send to sends each one straight back and the sending Pi times every round trip. After the main run it also goes quiet for 5 s, 30 s and 2 min, then sends one message, to see how long the first message takes when the link has been idle (a radio can be slow to wake up). Runs 10 minutes at 19200 baud (bits per second).",
+  "how": "The sending Pi (the one you press Start on, unless you Swap in From → To) sends a 7-byte message every 10 ms down the serial cable or radio. The Pi you send to sends each one straight back and the sending Pi times every round trip. After the main run it also goes quiet for 5 s, 30 s and 2 min, then sends one message, to see how long the first message takes when the link has been idle (a radio can be slow to wake up). Runs 10 minutes at 19200 baud (bits per second).",
   "need": "A USB-serial adapter (or the Pi's serial pins) on each Pi, joined by a null-modem cable for a bench test or through the radios' serial ports. Tick the Pi that answers under From → To (⇅ Swap if it should send); the answering Pi needs nothing set up, but its serial port must use the same speed and is busy while the test runs. The clocks only matter for the one-way directions.",
   "pass_means": "Pass = 99 out of every 100 round trips took 60 ms or less, and no more than 0.1 % of messages were lost. The first message after each quiet period must also be inside the limit. One bad message in a thousand is allowed; a pattern of slow ones is not.",
   "typical": "Proving a serial path over an 5G router or FirstNet radio can carry a DER trip signal inside 60 ms before it is used in the field."
@@ -567,19 +576,36 @@ TRIP_INFO["DER trip \u2014 Mirrored Bits mode"] = {
 }
 
 
+TRIP_INFO["DER transfer trip \u2014 Orbit radio (2 s budget)"] = {
+    "what": "Two Pis act as the two protection relays of a DER transfer-trip scheme: one is the substation relay (SEL-351 / 751 / 651R class), the other the DER intertie relay (SEL-700GT class). The stream runs nonstop in both directions, like real Mirrored Bits, through the radio's serial port. It measures the round trip of every single frame, counts every lost or damaged frame, and checks whether the 200 ms round trip (about 100 ms each way) holds even for the slowest 1 frame in 1000. Our own frame format: NOT wire-compatible with SEL relays.",
+    "how": "Each Pi sends a 19-byte frame back to back: eight status bits, a frame number, the send time, the number and send time of the last frame it received from the other end, and a CRC (checksum). At 19200 baud one frame takes 9.9 ms, so about 100 frames a second in each direction. Each side returns what it last heard, so each side can work out the round trip with no clock sync (minus the time it held the frame). A frame with a bad CRC is thrown away and counted; gaps in the frame numbers give the exact number of lost frames. A bit only counts after two good frames in a row show the same value, and a bad or missing frame drops the channel (ROK) at once. The substation Pi flips the trip bit (TMB1) every 2 s and the DER Pi notes when it sees it. Every figure is kept as a running summary, so a run of days uses no more memory and about 1 MB of storage per day. Set the duration (24 h to start; run for days to catch the worst case).",
+    "need": "A USB-serial adapter (or the Pi's serial pins) on each Pi, the serial cable of each Pi going into the Orbit radio's serial port at 19200 baud (9600 also works); for a bench check use a null-modem cable between the Pis. Set each Orbit to send ONE message per packet: a short character timeout (about 2 character times, around 1 ms at 19200 baud) and a packet size equal to the frame (19 bytes), otherwise it may hold serial bytes back and add delay. The Pi does not change the Orbit; type what you set into \"Radio serial packetization\" so every result records it. The Pi you send to joins in for the length of the test (mirror image: PROTO B, IDs swapped). One-way times need GPS time on both Pis, which is not built in: until then one-way = round trip / 2, and says so.",
+    "pass_means": "Pass = 99.9 out of every 100 frames came round in 200 ms or less (the 99.9th percentile), no more than 0.1 % of frames were lost, ROK was down for no more than 0.1 % of the time, and RBAD never asserted. The result also shows the median, 95th, 99th, 99.9th and slowest round trip, frames lost, CRC errors, number of outages and the longest one. A bench result over a cable is not the radio result.",
+    "typical": "Showing that a radio link meets the transfer-trip budget (IEEE 1547 allows 2,000 ms in total; the link should use well under 100 ms of it), including the rare slow frame that a short test never sees."
+}
+
+
 def _trip_presets() -> List[dict]:
     idle = [5, 30, 120]
     return [
         _preset("DER trip test",
-                "Emulates a Mirrored Bits trip signal over a serial link: a small message every 50 ms for 10 minutes, "
+                "Emulates a Mirrored Bits trip signal over a serial link: a small message every 10 ms for 10 minutes, "
                 "plus 'first message after quiet' checks. Pass = 99 % of messages arrive within 60 ms.",
-                transport="serial", serial={"baud": 19200}, frame="compact", interval_ms=50, duration_s=600,
+                transport="serial", serial={"baud": 19200}, frame="compact", interval_ms=10, duration_s=600,
                 threshold_ms=60, idle_gaps_s=idle, idle_repeats=3, rule={"percentile": 99}),
         _preset("DER trip — Mirrored Bits mode",
                 "A pair of SEL-2505-style Mirrored Bits emulators, one at each end: full messages nonstop, ROK / RBAD / CBAD, and the time for a bit change to cross. "
                 "Pass = 99 % of bit changes within 60 ms, ROK down no more than 0.1 % of the time, no RBAD. SimCodec (our own format): emulator-to-emulator only, not compatible with SEL relays.",
-                transport="serial", serial={"baud": 19200}, mode="mirrored", frame="compact", interval_ms=50, duration_s=600,
+                transport="serial", serial={"baud": 38400}, mode="mirrored", frame="compact", interval_ms=50, duration_s=600,
                 threshold_ms=60, rule={"percentile": 99}),
+        _preset("DER transfer trip \u2014 Orbit radio (2 s budget)",
+                "Substation relay (SEL-351/751/651R class) \u2192 DER relay (SEL-700GT class), nonstop frames both ways over the radio's serial port at 19200 baud (a 19-byte frame every 9.9 ms): "
+                "round trip of every frame from the echo, lost frames, CRC errors, outages. Pass = 99.9 % of round trips within 200 ms. Run for days to catch the worst case. Our own frame format: not SEL wire-compatible.",
+                transport="serial", serial={"baud": 19200}, mode="mirrored", frame="compact", interval_ms=10, duration_s=24 * 3600,
+                threshold_ms=200, timeout_ms=1000, rule={"percentile": 99.9, "max_loss_pct": 0.1},
+                mirrored={"codec": "trip", "trip_every_s": 2.0, "max_down_pct": 0.1,
+                          "settings": {"rmb_pu": [2] * 8, "rmb_do": [2] * 8, "rtt_max_ms": 200.0,
+                                       "role_names": {"A": "Substation relay (SEL-351/751/651R class)", "B": "DER relay (SEL-700GT class)"}}}),
         _preset("DER trip test (IP)",
                 "Same trip-signal timing over the radio's Ethernet port (UDP).",
                 transport="udp", frame="extended", interval_ms=50, duration_s=600, threshold_ms=60,
@@ -674,6 +700,7 @@ _FORM_FIELDS = {
     "rule": ["max_loss_pct", "idle_threshold_ms"],
     "net": ["port", "dscp", "keepalive_idle_s"],
     "mirrored": ["fail_after", "trip_every_s", "max_down_pct"],
+    "radio": ["char_timeout_ms", "max_packet_bytes"],
     "goose": ["vlan_id", "vlan_prio", "udp_port", "ttl", "dscp"],
 }
 

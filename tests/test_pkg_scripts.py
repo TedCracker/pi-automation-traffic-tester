@@ -1,4 +1,4 @@
-"""Packaging scripts: syntax, options and the generated-unit contract (the real install is tested in an arm64 container, see checks.md)."""
+"""Packaging scripts: syntax, options and the generated-unit contract (the real install is tested in an arm64 container, see docs/dev/checks.md)."""
 import os
 import re
 import subprocess

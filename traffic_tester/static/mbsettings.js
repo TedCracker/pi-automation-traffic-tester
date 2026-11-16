@@ -26,7 +26,7 @@ export function mbFieldsHtml(p, attr, serial) {
       ${sel('rate_mode', 'Rate', [['max', 'Back to back at the baud rate'], ['per_cycle', 'Capped: messages per power-system cycle']], 'Real relays send 4–8 messages per cycle.')}
       ${sel('line_hz', 'Power system', [[50, '50 Hz'], [60, '60 Hz']], 'Used by the cap.').replace('<select', '<select data-num="1"')}${num('per_cycle', 'Messages per cycle', 'With the cap (4–8 like a relay).')}
       ${serial ? `<label class="chk"><input type="checkbox"${attr('mirrored.settings.rtscts', 'sbool')} ${S.rtscts ? 'checked' : ''}> RTS/CTS hardware handshake</label><small class="muted">Data bits, parity and the extra stop bit (2 stop bits for 10-bit characters) are in the serial settings above.</small>` : ''}</div>
-    <h4>Echo bit (round trip)</h4><div class="grid g3">
+    <h4>Echo bit (round trip)</h4><p class="muted" style="margin:0 0 6px">Not used with the Trip frame format: there the echo travels inside every frame and all 8 bits are yours.</p><div class="grid g3">
       ${sel('echo', 'Echo', [['auto', 'Automatic (PROTO A near, B far)'], ['near', 'Near end (flips it back)'], ['far', 'Far end (copies it)'], ['off', 'Off (all 8 bits are yours)']], 'One end copies the bit, the other flips it each time it returns: every flip is one round trip.')}
       ${num('echo_bit', 'Echo bit (1–8)', 'Reserved: not available for your own signals.')}${num('rtt_max_ms', 'RTT_MAX (ms)', 'The echo alarm fires when a round trip takes longer.')}
       ${num('trip_bit', 'Test bit (1–8)', 'The bit the test flips every few seconds to time a bit change.')}</div>

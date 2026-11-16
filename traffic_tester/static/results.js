@@ -3,6 +3,7 @@ import { S } from './state.js';
 import { barHtml, bindBar, setRefreshTarget } from './refresh.js';
 import { renderCompare, pickState, ensureCompareCss } from './compare.js';
 import { Job } from './job.js';
+import { radioResultHtml, mountRepeats } from './radioui.js';
 
 let sessions = [], sid = null, plots = [], resRoot = null, runSig = '', curRuns = [];
 // Compare (SPEC 7.5): Select mode puts a tick box on every result that has numbers; 2 to 4 of the same kind open the Compare page in place of the list.
@@ -53,8 +54,9 @@ export async function renderResults(root) {
       ${runs.length ? `<div class="runlist"><table><thead><tr>${selMode ? '<th class="pick"></th>' : ''}<th>Result</th><th>Test</th><th>When</th><th>Link</th><th>p99</th><th>Lost</th><th>Messages</th></tr></thead><tbody>
       ${groupRuns(runs).map(g => g.group ? groupRows(g) : runRow(g.run)).join('')}</tbody></table></div>`
         : '<div class="empty"><p>No tests in this session yet. Run one from the Setup screen.</p></div>'}</div>
-    <div id="detail"></div>`;
+    <div id="repeatsCard"></div><div id="detail"></div>`;
   bindBar(root);
+  mountRepeats($('#repeatsCard', root), id => { S.openRun = id; showRun(id); window.scrollTo({ top: 0 }); });
   $('#sesSel').onchange = e => { sid = +e.target.value; S.openRun = null; renderResults(root); };
   $('#sNew').onclick = async () => { const n = await promptBox('New session', 'Name (e.g. site and date)', ''); if (n === null) return; const s = await api('/sessions', { method: 'POST', body: { name: n } }); sid = s.id; S.status.session = s; toast('New session started.'); renderResults(root); };
   $('#sRen').onclick = async () => { const n = await promptBox('Rename session', 'Name', cur.name); if (n) { await api(`/sessions/${sid}`, { method: 'PUT', body: { name: n } }); renderResults(root); } };
@@ -204,7 +206,7 @@ async function showRun(id) {
       <p class="muted" style="margin:8px 0 0;font-size:.85rem">Setup used: ${esc(TRANSPORT_NAMES[r.transport] || r.transport)} · ${esc(r.port || '')} · ${when(r.started_at)}</p>${grp.length ? `<p class="muted" style="margin:4px 0 0;font-size:.85rem"><a href="/api/report.pdf?run_ids=${[r.id, ...grp.map(x => x.id)].sort((a, b) => a - b).join(',')}" download data-testid="result-pdf-both">📄 PDF report with every link</a></p>` : ''}</div>
     <div class="grid g2"><div class="card"><h2>Delay over time</h2><div id="rChart" class="chart"></div></div><div class="card"><h2>How delays were spread</h2><div id="rHist"></div></div></div>
     <div class="card"><h2>Per-second summary</h2><div id="iChart" class="chart"></div></div>
-    ${mbSection(s, id)}${ow}${idle}${tcp}${goose}`;
+    ${mbSection(s, id)}${radioResultHtml(s)}${ow}${idle}${tcp}${goose}`;
   $('#delRun').onclick = async () => { if (await confirmBox('Delete this test?', 'Its data is removed permanently.', 'Delete', true)) { await api(`/runs/${id}`, { method: 'DELETE' }); S.openRun = null; renderResults($('#main').firstElementChild || $('#main')); } };
   $$('[data-open-run]', box).forEach(b => b.onclick = () => { S.openRun = +b.dataset.openRun; showRun(S.openRun); window.scrollTo({ top: 0 }); });
   bindExtras(box, r);
@@ -213,10 +215,17 @@ async function showRun(id) {
 
 // Mirrored Bits: the emulator's result (bit transfer time, ROK / RBAD / CBAD, rejects by reason, inter-arrival histogram, impairment used, far end).
 // Tests saved by the first Mirrored Bits mode (before the emulator) have no `emulator` flag and keep their old card.
-const REJ = ['parity', 'framing', 'overrun', 'consistency', 'address', 'loopback', 'timing', 'missing'];
+const REJ = ['parity', 'framing', 'overrun', 'consistency', 'crc', 'address', 'loopback', 'timing', 'missing'];
 const mbSection = (s, id) => {
   const m = s.mirrored; if (!m) return '';
   return m.emulator ? mbEmu(s, m, id) : mbOld(s, m);
+};
+// Frame codec (Trip frame): the round trip of every frame is the headline; lost frames are exact (sequence numbers), CRC errors are damaged frames.
+const frameTiles = (m, t, r) => {
+  const f = m.frames || {}, thr = t.threshold_ms || 1e9, limit = (m.settings || {}).rtt_max_ms;
+  return `${card('Round trip (every frame)', r.p999 == null ? '–' : ms(r.p999), `p99.9 · p50 ${ms(r.p50)} · p99 ${ms(r.p99)} · max ${ms(r.max)} · jitter ${ms(r.jitter_ms)}`, (r.p999 > thr || r.max > thr) ? (r.p999 > thr ? 'bad' : 'warn') : 'good', 'Measured from the echo in the frames, no clock sync. One way is about half (an estimate: true one-way needs GPS time). Limit ' + ms(thr) + ' at the chosen percentile.')}
+    ${card('Frames lost', num(f.lost), `${f.lost_pct}% of ${num((f.good || 0) + (f.lost || 0))} · ${num(f.lost_events)} gap(s) · longest ${num(f.longest_gap)}`, f.lost ? 'bad' : 'good', 'Counted exactly from the frame numbers; includes frames that arrived damaged.')}
+    ${card('CRC errors', num(f.crc_errors), `${num(f.duplicates)} repeated · ${num(f.out_of_order)} out of order`, f.crc_errors ? 'warn' : 'good')}`;
 };
 const mbEmu = (s, m, id) => {
   const t = m.transfer || {}, r = m.rtt || {}, h = m.histogram || { counts: [], labels: [] }, rej = m.rejects || {}, far = m.far, imp = m.impair || {};
@@ -225,12 +234,13 @@ const mbEmu = (s, m, id) => {
   const rejTot = REJ.reduce((a, k) => a + (rej[k] || 0), 0);
   return `<div class="card" data-testid="mb-result"><h2>Mirrored Bits channel <span class="tag preset" style="text-transform:none">${num(m.baud)} baud · PROTO ${esc(m.proto)}</span></h2>
     <p class="muted" style="margin:0 0 8px">${esc(m.codec)}. ${num(m.tx_msgs)} messages sent (${num(m.tx_rate)} per second, one every ${m.wire_period_ms} ms), ${num(m.rx_good)} good ones received here, ${num(rejTot)} rejected.</p>
-    <div class="tiles">${card('Bit transfer time', t.p99 == null ? '–' : ms(t.p99), `p99 · p50 ${ms(t.p50)} · max ${ms(t.max)}`, t.p99 > (t.threshold_ms || 1e9) ? 'bad' : 'good', 'How long a bit change takes to cross the link. ' + (t.basis === 'one_way' ? 'Measured one way (both clocks synced).' : 'Estimated as half the round trip of the echo bit.'))}
-      ${card('Round trip (echo bit)', ms(r.p50), `p99 ${ms(r.p99)} · max ${ms(r.max)} · jitter ${ms(r.jitter_ms)}`, r.alarm_events ? 'bad' : 'good')}
+    <div class="tiles">${m.frame_mode ? frameTiles(m, t, r) : ''}${m.frame_mode ? '' : card('Bit transfer time', t.p99 == null ? '–' : ms(t.p99), `p99 · p50 ${ms(t.p50)} · max ${ms(t.max)}`, t.p99 > (t.threshold_ms || 1e9) ? 'bad' : 'good', 'How long a bit change takes to cross the link. ' + (t.basis === 'one_way' ? 'Measured one way (both clocks synced).' : 'Estimated as half the round trip of the echo bit.'))}
+      ${m.frame_mode ? '' : card('Round trip (echo bit)', ms(r.p50), `p99 ${ms(r.p99)} · max ${ms(r.max)} · jitter ${ms(r.jitter_ms)}`, r.alarm_events ? 'bad' : 'good')}
       ${card('ROK availability', pct(m.availability_pct), `ROK was 0 for ${pct(m.unavail_pct)} of the time`, m.unavail_pct > 0.1 ? 'warn' : 'good')}
       ${card('Longest outage', (m.longest_outage_ms || 0) + ' ms', `${num(m.outage_count)} outage(s) · ${num(m.rok_drops)} ROK drops`, m.longest_outage_ms ? 'warn' : 'good')}
       ${card('RBAD / CBAD', `${num(m.rbad_events)} / ${num(m.cbad_events)}`, `events · lost-channel ${num(m.lost_events)}`, m.rbad_events || m.cbad_events ? 'bad' : 'good')}
-      ${card('Echo alarms', num(r.alarm_events), `round trip over ${r.rtt_max_ms} ms`, r.alarm_events ? 'bad' : 'good')}</div>
+      ${card(m.frame_mode ? 'Slow round trips' : 'Echo alarms', num(r.alarm_events), `round trip over ${r.rtt_max_ms} ms`, r.alarm_events ? 'bad' : 'good')}</div>
+    ${m.one_way_gps ? `<p class="muted" data-testid="mb-gps-note">${esc(m.one_way_gps)}.</p>` : ''}
     ${m.one_way_note ? `<p class="muted">${esc(m.one_way_note)}</p>` : ''}
     <div class="grid g2" style="margin-top:12px"><div class="scroll"><table><thead><tr><th>Rejected messages</th><th>Count</th></tr></thead><tbody>${REJ.map(k => `<tr><td>${k}</td><td>${num(rej[k] || 0)}</td></tr>`).join('')}</tbody></table>
       ${m.overrun_available === false ? '<p class="muted">Overrun counting is not available on this serial port (the driver has no counter).</p>' : ''}</div>

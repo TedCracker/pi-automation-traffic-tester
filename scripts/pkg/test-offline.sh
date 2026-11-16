@@ -1,7 +1,7 @@
 #!/bin/bash
 # Prove the offline package installs and runs with NO network on a clean arm64 Debian that stands in for Raspberry Pi OS (with real systemd as PID 1).
 #   scripts/pkg/test-offline.sh <extracted package dir> <base image e.g. debian:bookworm-20250428> <label> [pi5|pi4]
-# Output: CHECK lines (-> checks.md). The baseline image is built WITH network (systemd + dbus, as every Pi OS has); the install itself runs with --network none.
+# Output: CHECK lines (-> docs/dev/checks.md). The baseline image is built WITH network (systemd + dbus, as every Pi OS has); the install itself runs with --network none.
 set -uo pipefail
 PKG="$(cd "$1" && pwd)"; BASE="$2"; LABEL="$3"; MODEL="${4:-pi5}"
 IMG="tt-offline-base-$LABEL"; C="tt-offline-$LABEL"

@@ -5,9 +5,9 @@
 import { $, $$, esc, api, toast, tip } from './ui.js';
 
 const POLL_MS = 250, TRAVEL_MS = 1500, MAX_CHIPS = 16;
-const REASON_TEXT = { parity: 'parity error', framing: 'framing error / not a message', overrun: 'receive overrun', consistency: 'the 3 copies of a bit disagreed', address: 'wrong ID (not our RX_ID)',
+const REASON_TEXT = { parity: 'parity error', framing: 'framing error / not a message', overrun: 'receive overrun', consistency: 'the 3 copies of a bit disagreed', crc: 'CRC did not match (damaged frame)', address: 'wrong ID (not our RX_ID)',
   loopback: 'our own TX_ID: hearing ourselves (loopback)', timing: 'arrived too late (inter-arrival over K x nominal)', missing: 'a message was missing' };
-const REJECT_ORDER = ['parity', 'framing', 'overrun', 'consistency', 'address', 'loopback', 'timing', 'missing'];
+const REJECT_ORDER = ['parity', 'framing', 'overrun', 'consistency', 'crc', 'address', 'loopback', 'timing', 'missing'];
 const CHIPS = [['lat', '+50 ms', { latency_ms: 50 }, { latency_ms: 0 }, c => c.latency_ms > 0 && !c.jitter_ms], ['jit', '±10 ms jitter', { jitter_ms: 10 }, { jitter_ms: 0 }, c => c.jitter_ms > 0],
   ['drop', '10 % drop', { drop_pct: 10 }, { drop_pct: 0 }, c => c.drop_pct > 0], ['err', 'Bit errors', { bit_error_pct: 5 }, { bit_error_pct: 0 }, c => c.bit_error_pct > 0]];
 const f1 = v => v == null ? '–' : (+v).toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2);
@@ -91,10 +91,11 @@ export function mountMB(root, opts = {}) {
   function endHtml(e, loc, lbl) {
     if (!e) return `<div class="mbname"><b>${esc(lbl || 'The other Pi')}</b></div><p class="muted">Its side is not visible from here (this Pi does not control it, or it is not answering).</p>`;
     const S = e.settings || {}, L = S.labels || {}, nm = k => L[k] || ({ proto: 'PROTO', tx_id: 'TX_ID', rx_id: 'RX_ID', baud: 'BAUD' }[k]);
-    const echo = e.echo_bit, tmb = e.tmb | 0, tx = e.tx_bits | 0;
+    const echo = e.echo_bit, tmb = e.tmb | 0, tx = e.tx_bits | 0, fr = (e.counters || {}).frames;
     const sq = (i, bits, tap) => { const on = (bits >> i) & 1, reserved = tap && echo === i + 1; return `<button type="button" class="mbsq ${on ? 'on' : ''} ${reserved ? 'echo' : ''}" ${tap && !reserved ? `data-flip="${i + 1}" data-side="${loc ? 'local' : 'remote'}" aria-pressed="${on}"` : 'disabled tabindex="-1"'} aria-label="${tap ? 'TMB' : 'RMB'}${i + 1} ${on ? 1 : 0}${reserved ? ' (echo)' : ''}" title="${tap ? 'TMB' : 'RMB'}${i + 1}${reserved ? ' - reserved for the round-trip echo' : ''}">${i + 1}${reserved ? '<small>echo</small>' : ''}</button>`; };
     const row = (bits, tap) => [0, 1, 2, 3, 4, 5, 6, 7].map(i => sq(i, bits, tap)).join('');
-    return `<div class="mbname"><b>${esc(e.label || e.name)}</b> <span class="pill na mbproto">${esc(nm('proto'))} ${esc(e.proto)}</span></div>
+    return `<div class="mbname"><b>${esc(e.label || e.name)}</b> <span class="pill na mbproto">${esc(nm('proto'))} ${esc(e.proto)}</span>${e.role ? ` <small class="muted" data-testid="mb-role">${esc(e.role)}</small>` : ''}</div>
+      ${fr ? `<div class="muted" data-testid="mb-frames" style="font-size:.85em">Frames: ${fr.good} good · ${fr.lost} lost · ${fr.crc_errors} CRC errors · ${fr.duplicates + fr.out_of_order} repeated / out of order${e.rtt && e.rtt.p999 != null ? ` · round trip p50 ${e.rtt.p50} / p99.9 ${e.rtt.p999} / max ${e.rtt.max} ms` : ''}</div>` : ''}
       <div class="mbrowl">Sends TMB 1–8 <small class="muted">${loc ? 'tap to flip' : 'tap flips it on that Pi'}</small></div><div class="mbsqs" data-testid="mb-tmb">${row(echo ? tx : tmb, true)}</div>
       <div class="mbrowl">Receives RMB 1–8</div><div class="mbsqs" data-testid="mb-rmb">${row(e.rmb | 0, false)}</div>
       <div class="mblamps"><span class="mbrok ${e.rok ? 'ok' : e.health === 'waiting' ? 'wait' : 'bad'}" data-testid="mb-rok"><i></i>ROK</span>
@@ -303,7 +304,8 @@ export function mountMB(root, opts = {}) {
     <ul><li><b>Messages</b> are sent nonstop, back to back, in both directions. Each carries all 8 bits three times, plus an ID.</li>
     <li><b>ROK</b> (receive OK) is 1 while good messages keep arriving. A bad, late or missing message drops it to 0 at once, and the received bits fall back to their defaults. It comes back after a few good messages in a row (the “N” setting, our assumption).</li>
     <li><b>RBAD</b> asserts when ROK has been 0 for a while (RBAD_PU). <b>CBAD</b> asserts when ROK was 0 too much of a rolling window (CBAD_PU). <b>LBOK</b> is the loopback test passing.</li>
-    <li><b>Echo bit</b> (default TMB8): one end copies it back, the other flips it each time it returns. The time per flip is the round trip; one way ≈ half. This catches a steady delay that ROK alone cannot see.</li></ul>
+    <li><b>Echo bit</b> (default TMB8): one end copies it back, the other flips it each time it returns. The time per flip is the round trip; one way ≈ half. This catches a steady delay that ROK alone cannot see.</li>
+    <li><b>Trip frame format</b> (the DER transfer-trip test): each message is a 19-byte frame with a frame number, a send time, the echo of the last frame heard and a CRC. Every frame gives a round trip with no clock sync, lost frames are counted exactly from the numbers, damaged ones by their CRC, and TMB8 is free. One-way needs GPS time (not built in): until then one-way = round trip / 2.</li></ul>
     <p>The question it answers: <b>does Mirrored Bits survive this link?</b> Break the link, add delay, jitter, drops or bit errors with the chips, and watch what a real unit pair would do.</p>
     <p class="muted"><b>SimCodec</b> is our own message format for emulator-to-emulator tests. It is <b>not</b> the SEL wire format: it will not talk to a real SEL relay. The real layout can be added later as another codec without changing anything else.</p></div>`;
 

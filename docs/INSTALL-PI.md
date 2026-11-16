@@ -2,7 +2,7 @@
 
 For the **Raspberry Pi 5** with **Raspberry Pi OS 64-bit** (Bookworm or newer; the Pi 5 does not run Bullseye or older). Do the same steps on every Pi (there are no fixed roles: every Pi is the same). The Pi needs internet **once** (to download a few packages); after that it works offline.
 
-> **Easiest route: the ready-made card image** (no terminal at all): flash `pi-traffic-tester-<version>.img.xz` with Raspberry Pi Imager, power on, join the Wi-Fi `pi-setup` (password `password`), open `http://10.42.0.1:8080` and name the Pi. See README "Ready-made SD-card image" and START-HERE.pdf. The steps below are for installing onto a Pi you already run.
+> **Easiest route: the ready-made card image** (no terminal at all): flash `pi-traffic-tester-<version>.img.xz` with Raspberry Pi Imager, power on, join the Wi-Fi `pi-setup` (password `password`), open `http://10.42.0.1:8080` and name the Pi. See docs/DETAILS.md "Ready-made SD-card image" and START-HERE.pdf. The steps below are for installing onto a Pi you already run.
 
 ## 1. Copy the app to each Pi
 On your laptop, from the `pi-traffic-tester` folder:
@@ -48,14 +48,14 @@ First time with a new cable? Run **Back-to-back baseline** with a null-modem cab
 - **Names you will still see:** inside the Pi the service, folder `/opt/traffic-tester`, user and settings file keep the short technical name `traffic-tester` (the product is "Pi Automation Traffic Tester").
 
 ## Software updates (Settings → Software update)
-Both Pis update from the web page; the installer sets everything up (a root-owned helper + one polkit rule; the web app is never root). Details and the security model: README "Mobile + software updates".
+Both Pis update from the web page; the installer sets everything up (a root-owned helper + one polkit rule; the web app is never root). Details and the security model: docs/DETAILS.md "Mobile + software updates".
 - **Upload a file**: open the Pi's address on a phone or PC on the same network, Settings → Software update → *Choose update file…* → pick `pi-traffic-tester-<version>.ptt` → *Install*. Works with no internet. The `.ptt` files are on the USB stick (`pi-usb`) and are made by `scripts/publish-update.sh`.
 - **Check online**: needs Wi-Fi internet and the update key. `install-pi.sh` installs the key when the package contains `update/deploy_key` (the offline package and the USB tar.gz do). Without it the button stays greyed out and says why.
 - Install keeps the old app as `app.prev` (`/opt/traffic-tester/app.prev`); if the new version does not answer within 60 s the old one is restored automatically. *Roll back to previous version* swaps them back.
 - **What changed**: the version number sits under the logo (tap it) and **About** shows the installed version, update status and *What's new*, all from `CHANGELOG.md`. *Check online* shows the notes of every newer version before *Install*; after an update the first page load shows a one-time "Updated to vX — what's new" banner. To publish: add the new version's entry to `CHANGELOG.md` (the script refuses without it), then `./scripts/publish-update.sh`; refresh the install stick with `scripts/build-usb-package.sh`.
 - A new Python package (this release added `websockets`, without which the live charts never connect) travels inside the bundle as aarch64 wheels and is installed offline by the helper before the swap; if it cannot, the Pi says what is missing and changes nothing.
 - An update needs the full installer again only when it says "needs a newer installer" (rare: when the helper itself changes).
-- Rootless installs (no sudo, like tvbrain): set `TT_UPDATE_MODE=user` (and optionally `TT_UPDATE_SERVICE=traffic-tester.service`) in the user unit; the app folder must sit next to its venv, e.g. `~/pi-traffic-tester/app` + `venv`. Put the key at `<data dir>/update/deploy_key` (chmod 600).
+- Rootless installs (no sudo, for example a shared lab machine): set `TT_UPDATE_MODE=user` (and optionally `TT_UPDATE_SERVICE=traffic-tester.service`) in the user unit; the app folder must sit next to its venv, e.g. `~/pi-traffic-tester/app` + `venv`. Put the key at `<data dir>/update/deploy_key` (chmod 600).
 
 ## Traffic sniffer: extra hardware and wiring
 Everything below is optional; the tester and generator need none of it. Prices are rough listings (checked 2026-11-03) — verify when you buy.
@@ -132,7 +132,7 @@ Host pi-tt
 Now `ssh pi-tt` logs in with no password. For safety you can turn off password logins on the Pi once the key works: set `PasswordAuthentication no` in `/etc/ssh/sshd_config.d/99-tt.conf` and `sudo systemctl reload ssh`.
 
 ### Edit the app on the Pi from Claude Code on your PC
-Claude Code on your PC can work on the Pi's app files using the same SSH key. Pick one (not yet tried on a real Pi, see checks.md):
+Claude Code on your PC can work on the Pi's app files using the same SSH key. Pick one (not yet tried on a real Pi, see the maintainer's private notes):
 1. **Mount the Pi's folder on the PC (keeps the Pi signed out).** Install SSHFS-Win + WinFsp on the PC, then in Explorer map a network drive to `\\sshfs.r\pi@pi-tt\opt\traffic-tester\app` (it reads your `~/.ssh/config` host `pi-tt`). Start Claude Code on the PC in that drive. Your PC's sign-in is used; the Pi stores nothing.
 2. **Terminal over SSH.** `ssh pi-tt`, `cd /opt/traffic-tester/app`, run `claude` there. This signs in **on the Pi** (as whoever you are logged in as), so run the log-out check below when you leave.
 3. **VS Code Remote-SSH.** Connect to `pi-tt`, open `/opt/traffic-tester/app`. The Claude Code extension then runs on the Pi and needs a sign-in on the Pi, like option 2.
@@ -145,16 +145,16 @@ By hand on the Pi: `sudo systemctl stop traffic-tester-claude-rc.service` (and `
 Security note: a Remote Control session is a full Claude Code session as the `traffic-tester` user. Anyone who can use your Claude account can use it, so keep it off unless you need it, and log out when you leave.
 
 ### What was verified, and what still needs a real Pi
-See `checks.md` (“Phase 8”). Real Pi still to confirm: the link-and-code sign-in with your real account, the Remote Control prompts on the Pi's Claude Code version, and that NetworkManager/dhcpcd on your Pi OS image takes the “never default route” setting.
+See the maintainer's private notes (“Phase 8”). Real Pi still to confirm: the link-and-code sign-in with your real account, the Remote Control prompts on the Pi's Claude Code version, and that NetworkManager/dhcpcd on your Pi OS image takes the “never default route” setting.
 
 ## Offline install (no internet on the Pi)
 For a customer site with only a locked-down Windows laptop: **`docs/INSTALL-OFFLINE.md`** (also shipped as `INSTALL-OFFLINE.txt`) is the step-by-step guide: download ONE zip from Google Drive, connect laptop and Pi with an Ethernet cable, `scp` the file over, run `sudo ./install-offline.sh`, join the Pi's Wi-Fi (password `password`) and open `http://10.42.0.1:8080` (or `http://raspberrypi.local:8080` over the Ethernet cable).
 The package (`scripts/pkg/build-offline-package.sh`) covers **Raspberry Pi 4 and Pi 5, Raspberry Pi OS 64-bit Bookworm and Trixie**: app, all arm64 `.deb`s with dependencies as one local apt repository per release (`apt-bookworm/`, `apt-trixie/`), Python wheels for 3.11 and 3.13, the built-in Wi-Fi (Nexmon) driver for 23 Pi 5 kernels, install script, checksums. `install-pi.sh --offline <folder>` is the same installer with no internet; the normal online install is unchanged. Claude Code is not bundled (licence); it is added once when the Pi has Wi-Fi internet (`--with-claude`).
-Verified in arm64 containers with the network OFF and real systemd (Bookworm and Trixie, Pi 5 and Pi 4 model strings): checks.md "Phase 6 (offline Drive package)".
+Verified in arm64 containers with the network OFF and real systemd (Bookworm and Trixie, Pi 5 and Pi 4 model strings): the maintainer's private notes "Phase 6 (offline Drive package)".
 
 ## Built-in Wi-Fi sniffing (Nexmon, experimental, Pi 5)
 - Sniffer → *Wi-Fi monitor* → adapter **Built-in Wi-Fi of the Pi (Nexmon)**. **Wi-Fi, and internet over Wi-Fi, go off while it sniffs** — open the web page over Ethernet. Tick the confirmation; start. **Restore normal Wi-Fi** (same page) brings the stock driver/firmware, NetworkManager and the link back; it also happens when the capture stops, if the app stops (watchdog, ≤ about a minute) and at boot.
 - The installer step needs a driver for your exact kernel: `uname -r` must be one of the folders in `nexmon/modules/` (Pi 5 Bookworm kernels 6.12.19–6.12.109, 6.6.20–6.6.74). Otherwise use a USB adapter, or build once on the Pi with internet: `sudo apt install linux-headers-$(uname -r) build-essential bc && sudo /opt/traffic-tester/nexmon/build/build-on-pi.sh`.
 - Always works as a rescue: `sudo systemctl start tt-wifi-helper@restore.service`, or reboot.
 - Recommended and more reliable: a USB Wi-Fi adapter with monitor mode (Alfa AWUS036ACM, AWUS036AXML).
-- Details and what is still to be proven on a real Pi: SPEC §14.6 and TODO.md.
+- Details and what is still to be proven on a real Pi: SPEC §14.6 and the maintainer's private notes

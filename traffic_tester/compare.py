@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from . import metrics as M
+from . import radio as RADIO
 
 # ---------------------------------------------------------------- job info
 JOB_FIELDS = (("site", "Site", 80), ("link", "Link / radio", 80), ("by", "By", 60), ("note", "Note", 300))
@@ -195,6 +196,10 @@ def setup_of(r: dict) -> Dict[str, str]:
         out["Direction"] = "One way" if (e.get("kind") or lg.get("kind")) == "one_way" else "Round trip"
         if t == "serial":
             out["Speed"] = f"{(p.get('serial') or {}).get('baud')} baud"
+            out["Radio packetization"] = RADIO.radio_text(p.get("radio")).replace("Radio serial packetization: ", "")      # a changed radio setting is the first thing to check when two results differ
+            w = s.get("when") or {}
+            if w:
+                out["Time of day"] = f"{w.get('start_local', '')} ({w.get('tag', '')})"
         elif t in ("udp", "tcp"):
             out["Port"] = str((p.get("net") or {}).get("port") or "")
         if k == "mirrored":

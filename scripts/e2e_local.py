@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end local test: two identical app instances (named alpha and bravo; there are no roles) over socat pty pairs, UDP, TCP and netem,
 plus the no-roles way: each instance adds the other with POST /api/peers and a test names it as destination (round trip, both ways at once, one way each way).
-Run via scripts/e2e-local.sh. Prints 'CHECK <name> | pass/fail | evidence' lines (-> checks.md)."""
+Run via scripts/e2e-local.sh. Prints 'CHECK <name> | pass/fail | evidence' lines (-> docs/dev/checks.md)."""
 import asyncio, json, os, re, shutil, signal, subprocess, sys, tempfile, time, zipfile, io
 import urllib.request, urllib.error
 

@@ -17,6 +17,7 @@ from collections import deque
 from typing import Callable, Deque, Dict, List, Optional, Tuple
 
 from . import codec as C
+from .. import radio as RADIO
 from .impair import Impairer
 from .io import IO
 from .links import Link, InternalLink
@@ -27,7 +28,9 @@ CODE_OK = ""
 HIST_EDGES_MS = [0.5, 1, 1.5, 2, 3, 4, 5, 6, 8, 10, 15, 20, 30, 50, 100, 200, 500, 1000]
 EVENTS_MAX = 100_000
 RTT_KEEP = 200_000
+HOURLY_MIN_S = 3600                    # runs at least this long get the by-hour-of-day breakdown
 FLIPS_KEEP = 50_000
+REFLECT_KEEP = 50_000
 
 
 def _pctl(xs: List[float], p: float) -> Optional[float]:
@@ -42,9 +45,57 @@ def _pctl(xs: List[float], p: float) -> Optional[float]:
 
 def stats_ms(xs: List[float]) -> dict:
     if not xs:
-        return {"n": 0, "min": None, "p50": None, "p95": None, "p99": None, "max": None, "avg": None}
+        return {"n": 0, "min": None, "p50": None, "p95": None, "p99": None, "p999": None, "max": None, "avg": None}
     r = lambda v: None if v is None else round(v, 3)
-    return {"n": len(xs), "min": r(min(xs)), "p50": r(_pctl(xs, 50)), "p95": r(_pctl(xs, 95)), "p99": r(_pctl(xs, 99)), "max": r(max(xs)), "avg": r(sum(xs) / len(xs))}
+    return {"n": len(xs), "min": r(min(xs)), "p50": r(_pctl(xs, 50)), "p95": r(_pctl(xs, 95)), "p99": r(_pctl(xs, 99)), "p999": r(_pctl(xs, 99.9)), "max": r(max(xs)), "avg": r(sum(xs) / len(xs))}
+
+
+class LatHist:
+    """Round-trip times in fixed 0.05 ms buckets (0 .. 2000 ms, one overflow bucket): bounded memory for runs of days, percentiles good to 0.05 ms
+    (rounded up, so never flattering), exact min / max / mean."""
+    RES = 0.05
+    TOP_MS = 2000.0
+
+    def __init__(self):
+        self.n_buckets = int(self.TOP_MS / self.RES) + 1
+        self.c = [0] * (self.n_buckets + 1)
+        self.n = 0
+        self.sum = 0.0
+        self.min = None
+        self.max = None
+
+    def add(self, ms: float) -> None:
+        i = int(ms / self.RES) if ms < self.TOP_MS else self.n_buckets
+        self.c[i if i >= 0 else 0] += 1
+        self.n += 1
+        self.sum += ms
+        if self.min is None or ms < self.min:
+            self.min = ms
+        if self.max is None or ms > self.max:
+            self.max = ms
+
+    def count_over(self, ms: float) -> int:
+        """Round trips longer than `ms` (to the bucket size)."""
+        i = int(ms / self.RES) + 1 if ms < self.TOP_MS else self.n_buckets
+        return sum(self.c[i:])
+
+    def pct(self, p: float) -> Optional[float]:
+        if not self.n:
+            return None
+        rank = max(1, -(-int(p * 1000) * self.n // 100000))            # nearest rank: ceil(p/100 * n) in integers (p to 0.001)
+        acc = 0
+        for i, k in enumerate(self.c):
+            acc += k
+            if acc >= rank:
+                return min(self.max, (i + 1) * self.RES) if i < self.n_buckets else self.max
+        return self.max
+
+    def stats(self) -> dict:
+        if not self.n:
+            return {"n": 0, "min": None, "p50": None, "p95": None, "p99": None, "p999": None, "max": None, "avg": None}
+        r = lambda v: round(v, 3)
+        return {"n": self.n, "min": r(self.min), "p50": r(self.pct(50)), "p95": r(self.pct(95)), "p99": r(self.pct(99)), "p999": r(self.pct(99.9)),
+                "max": r(self.max), "avg": r(self.sum / self.n)}
 
 
 class Emulator:
@@ -79,6 +130,10 @@ class Emulator:
         self.events: Deque[tuple] = deque(maxlen=EVENTS_MAX)
         self.events_total = 0
         self.tx_count = 0
+        self.tx_bytes = 0                      # bytes the link accepted (frames x size)
+        self.rx_bytes = 0                      # bytes of the frames that arrived (good or rejected)
+        self.gaps = RADIO.GapStats()           # how far apart good frames arrive: bursts = the radio bundles messages
+        self.hours = RADIO.HourStats()         # round trips / lost frames per clock hour (runs of an hour or more are shown by time of day)
         self.rx_count = 0                      # messages that arrived (good or rejected)
         self.tx_skipped = 0
         self.tx_errors = 0
@@ -120,8 +175,21 @@ class Emulator:
         self._jit_n = 0
         # trips (bit transfer time probe)
         self.flips: List[dict] = []
-        self.rmb_changes: Deque[dict] = deque(maxlen=20000)
+        self.rmb_changes: Deque[dict] = deque(maxlen=REFLECT_KEEP)
         self._trip_count = 0
+        # frame codec (seq + timestamp + echo + CRC)
+        self.rtt_hist = LatHist()                # every round trip measured from the echo in the frames (exact percentiles, bounded memory)
+        self._tx_seq = 0
+        self._rx_seq: Optional[int] = None       # last good frame number heard
+        self._rx_ts_us = 0                       # its send timestamp (the other end's clock), echoed back untouched
+        self._rx_arrival = 0                     # when it arrived (our monotonic ns): the difference to our next send is the hold time
+        self._rx_last_good_t = 0
+        self._last_echo_seq: Optional[int] = None
+        self.frames_lost = 0                     # frames that never arrived as a good frame, counted exactly from the sequence numbers
+        self.frames_lost_events = 0              # how many separate gaps
+        self.frames_gap_max = 0                  # longest run of consecutive lost frames
+        self.frames_dup = 0
+        self.frames_ooo = 0
         self.rtt_per_trip: List[dict] = []
         self.trip_rows: List[dict] = []
         self._gen = getattr(self.link, "generation", 0)
@@ -162,6 +230,9 @@ class Emulator:
             self._next_trip = self.mono() + int(self.s.trip_every_s * NS) if self.s.trip_every_s > 0 else None
 
     # ================================================================ events
+    def _wall_s(self, t: int) -> float:
+        return (self.t0_real + (t - self.t0)) / NS
+
     def _t_s(self, t: int) -> float:
         return round((t - self.t0) / NS, 4)
 
@@ -299,7 +370,10 @@ class Emulator:
                     self.log(now, "TMB", f"TMB{i + 1}", (bits >> i) & 1)
             self._prev_tmb = bits
         self.tx_bits = bits
-        msg = self.codec.encode(bits, self.s.tx_id)
+        if self.codec.trip_frame:
+            msg = self._frame(bits, now)
+        else:
+            msg = self.codec.encode(bits, self.s.tx_id)
         self.tx_count += 1
         self.chips_tx.append((self.tx_count, now, bits))
         if self.imp.active() or self.imp.pending():
@@ -307,6 +381,13 @@ class Emulator:
             self._release(now)
         else:
             self._send(msg)
+
+    def _frame(self, bits: int, now: int) -> bytes:
+        """The next frame: our sequence number and send time, plus the echo of the last good frame heard (and how long we held it)."""
+        seq = self._tx_seq
+        self._tx_seq = (seq + 1) & 0xFFFF
+        hold_us = max(0, (now - self._rx_arrival) // 1000) if self._rx_seq is not None else 0
+        return self.codec.encode_frame(bits, self.s.tx_id, seq, (now // 1000) & 0xFFFFFFFF, self._rx_seq, self._rx_ts_us, hold_us)
 
     def _release(self, now: int) -> None:
         if self.imp.pending():
@@ -316,6 +397,7 @@ class Emulator:
     def _send(self, msg: bytes) -> None:
         try:
             n = self.link.send(msg)
+            self.tx_bytes += n or 0
         except OSError as e:
             self.tx_errors += 1
             self.tx_error = f"{type(e).__name__}: {e}"
@@ -360,6 +442,7 @@ class Emulator:
 
     def _candidate(self, chars: List[C.RxChar], t: int, t_r: int) -> None:
         self.rx_count += 1
+        self.rx_bytes += len(chars)
         d = self.codec.decode(chars)
         ch = self.ch
         reason: Optional[str] = None
@@ -371,6 +454,8 @@ class Emulator:
             reason = d.char_err
         elif not d.ok_structure:
             reason = "framing"
+        elif not d.crc_ok:
+            reason = "crc"
         elif d.copies[0] != d.copies[1] or d.copies[0] != d.copies[2]:
             reason = "consistency"
         else:
@@ -393,6 +478,8 @@ class Emulator:
         if reason is not None:
             self._reject(t, t_r, reason, d.copies[0] if d.copies else None)
             return
+        if self.codec.trip_frame and not self._trip_frame_rx(d, t):
+            return                                           # a repeat or an old frame: counted, not used
         bits = d.copies[0]
         # histogram of the gap between consecutive VALID messages
         lg = ch.last_good
@@ -415,6 +502,34 @@ class Emulator:
             if rose:
                 pass
         self.io.write_outs(self.rx.value)
+
+    def _trip_frame_rx(self, d, t: int) -> bool:
+        """Sequence accounting + round trip from the echo for a frame that passed every check.  False = a duplicate / out-of-order frame: ignore it."""
+        if self._rx_seq is not None:
+            delta = (d.seq - self._rx_seq) & 0xFFFF
+            if t - self._rx_last_good_t > 600 * NS:
+                pass                                         # after a long outage the 16-bit number is ambiguous: just join the stream again
+            elif delta == 0:
+                self.frames_dup += 1
+                return False
+            elif delta >= 0x8000:
+                self.frames_ooo += 1
+                return False
+            elif delta > 1:
+                self.frames_lost += delta - 1
+                self.hours.add_lost(self._wall_s(t), delta - 1)
+                self.frames_lost_events += 1
+                self.frames_gap_max = max(self.frames_gap_max, delta - 1)
+                self.log(t, "STATUS", "FRAMES_LOST", delta - 1, f"{delta - 1} frame(s) missing (sequence {self._rx_seq} -> {d.seq})")
+        if self._rx_seq is not None and ((d.seq - self._rx_seq) & 0xFFFF) == 1:
+            self.gaps.add(t - self._rx_last_good_t, self.nominal_ns)
+        self._rx_seq, self._rx_ts_us, self._rx_arrival, self._rx_last_good_t = d.seq, d.ts_us, t, t
+        if d.echo_valid and d.echo_seq != self._last_echo_seq and d.hold_us < self.codec.HOLD_MAX:
+            self._last_echo_seq = d.echo_seq
+            rtt_us = ((t // 1000 - d.echo_ts_us) & 0xFFFFFFFF) - d.hold_us
+            if 0 <= rtt_us < 60_000_000:
+                self._rtt_record(t, rtt_us / 1000.0)
+        return True
 
     def _reject(self, t: int, t_r: int, reason: str, bits: Optional[int]) -> None:
         was = self.ch.rok
@@ -460,7 +575,13 @@ class Emulator:
             return
         if self.ch.rok_since is not None and self.t_echo_tx < self.ch.rok_since:
             return                                      # the TMB change was made before the link came back: not a round trip
-        rtt = (t - self.t_echo_tx) / 1e6
+        self._rtt_record(t, (t - self.t_echo_tx) / 1e6)
+
+    def _rtt_record(self, t: int, rtt: float) -> None:
+        """One round-trip measurement (echo bit, or the echo in a frame)."""
+        if self.codec.trip_frame:
+            self.rtt_hist.add(rtt)
+            self.hours.add_rtt(self._wall_s(t), rtt)
         self.rtt_last = rtt
         self.rtt_n += 1
         if self._rtt_prev is not None:
@@ -468,7 +589,7 @@ class Emulator:
             self._jit_n += 1
         self._rtt_prev = rtt
         self._rtt_skip += 1
-        if self._rtt_skip >= self._rtt_stride:
+        if self._rtt_skip >= self._rtt_stride or rtt > self.s.rtt_max_ms:       # thinned for long runs, but a slow one is always kept for the chart
             self._rtt_skip = 0
             self.rtt_ms.append(rtt)
             self.rtt_t.append(self._t_s(t))
@@ -561,12 +682,15 @@ class Emulator:
                 st = dict(c[1])
                 st.update(last=None if self.rtt_last is None else round(self.rtt_last, 3), alarm=self.rtt_alarm, alarm_events=self.rtt_alarm_events, n=self.rtt_n)
                 return st
-        st = stats_ms(self.rtt_ms if full else self.rtt_ms[-5000:])
+        if self.codec.trip_frame:
+            st = self.rtt_hist.stats()
+        else:
+            st = stats_ms(self.rtt_ms if full else self.rtt_ms[-5000:])
         if not full:
             self._rtt_cache = (now, dict(st))
         st["n"] = self.rtt_n
         st["jitter_ms"] = round(self._jit_sum / self._jit_n, 3) if self._jit_n else None
-        st["one_way_est_ms"] = None if st["p50"] is None else round(st["p50"] / 2, 3)
+        st["one_way_est_ms"] = None if st["p50"] is None else round(st["p50"] / 2, 3)       # RTT / 2: an estimate, labelled so (true one-way needs GPS time, see _one_way_hook)
         st["alarm"] = self.rtt_alarm
         st["alarm_events"] = self.rtt_alarm_events
         st["rtt_max_ms"] = self.s.rtt_max_ms
@@ -578,7 +702,16 @@ class Emulator:
         rej = dict(ch.rejects)
         return {"tx_msgs": self.tx_count, "rx_msgs": self.rx_count, "rx_good": ch.msgs_good, "rx_rejected": ch.msgs_rejected, "rejects": rej,
                 "rok_drops": ch.rok_drops, "rbad_events": ch.rbad_events, "cbad_events": ch.cbad_events, "lost_events": ch.lost_events,
-                "tx_skipped": self.tx_skipped, "tx_errors": self.tx_errors, "driver_errors": dict(self.errors_seen), "startup_junk": self.startup_junk}
+                "tx_skipped": self.tx_skipped, "tx_errors": self.tx_errors, "driver_errors": dict(self.errors_seen), "startup_junk": self.startup_junk,
+                "frames": self.frames()}
+
+    def frames(self) -> Optional[dict]:
+        """Frame accounting of the frame codec (None for SimCodec): good frames, exact losses from the sequence numbers, CRC errors, repeats, out of order."""
+        if not self.codec.trip_frame:
+            return None
+        good = self.ch.msgs_good
+        return {"good": good, "lost": self.frames_lost, "lost_events": self.frames_lost_events, "longest_gap": self.frames_gap_max, "crc_errors": self.ch.rejects.get("crc", 0),
+                "duplicates": self.frames_dup, "out_of_order": self.frames_ooo, "lost_pct": round(100.0 * self.frames_lost / (good + self.frames_lost), 4) if good + self.frames_lost else 0.0}
 
     def status(self) -> dict:
         now = self._now()
@@ -589,7 +722,7 @@ class Emulator:
         if getattr(link, "char_mode", "plain") == "parmrk" and not link.overrun_available:
             ov = "not available on this port"
         d = {
-            "name": self.name, "proto": self.s.proto, "running": self.running, "status": self.status_text, "health": self.health(),
+            "name": self.name, "proto": self.s.proto, "role": self.s.role_names.get(self.s.proto), "running": self.running, "status": self.status_text, "health": self.health(),
             "link": link.describe(), "codec": self.codec.label, "tx_id": self.s.tx_id, "rx_id": self.s.rx_id, "baud": self.s.baud,
             "nominal_ms": round(self.nominal_ns / 1e6, 3), "late_limit_ms": round(self.ch.late_ns / 1e6, 3),
             "tx_bits": self.tx_bits, "tmb": self.io.mask, "rmb": self.rx.value, "outs": self.io.state()["outs"],
@@ -640,9 +773,15 @@ class Emulator:
             w.writerow([iso, f"{(t - self.t0) / NS:.3f}", name, value, note])
         return buf.getvalue()
 
+    def _one_way_hook(self) -> Optional[str]:
+        """TODO (not built, by decision): true one-way latency needs both Pis on one time source (GPS with PPS, or PTP).  When a GPS clock is present, subtract
+        the sender's frame timestamp (made on that clock) from the arrival time here instead of using RTT / 2.  Until then every one-way figure for the frame
+        codec is RTT / 2 and says so."""
+        return None
+
     def reflect_events(self) -> dict:
         """What this end saw change at its outputs (for the far end to time bit transfers; needs synced clocks)."""
-        return {"rmb_changes": list(self.rmb_changes)[-5000:], "flips": self.flips[-5000:], "t0_real_ns": self.t0_real}
+        return {"rmb_changes": list(self.rmb_changes)[-REFLECT_KEEP:], "flips": self.flips[-REFLECT_KEEP:], "t0_real_ns": self.t0_real}
 
 
 def events_to_csv(rows: List[dict], started_at: str = "") -> str:
@@ -693,25 +832,49 @@ def transfer_times(flips: List[dict], far_changes: List[dict], tol_ms: float = 2
 
 
 # ======================================================================= results
-NOTE = "SimCodec: our own framing for emulator-to-emulator tests. Not SEL wire-compatible: it will not talk to a real SEL relay or SEL-2505."
+NOTE = "SimCodec / Trip frame: our own framing for emulator-to-emulator tests. Not SEL wire-compatible: it will not talk to a real SEL relay or SEL-2505."
 
 
-def verdict(m: dict, threshold_ms: float, percentile: int, max_loss_pct: float, max_down_pct: float) -> dict:
-    """Pass/fail: bit transfer time percentile vs threshold, ROK unavailability, no RBAD (plus lost trips)."""
+def _pkey(percentile) -> str:
+    p = float(percentile) if percentile not in ("max",) else 100.0
+    return "max" if p >= 100 else "p999" if abs(p - 99.9) < 1e-9 else f"p{int(p)}"
+
+
+def _plabel(percentile) -> str:
+    p = 100.0 if percentile == "max" else float(percentile)
+    return "The slowest" if p >= 100 else f"{p:g} %"
+
+
+def verdict(m: dict, threshold_ms: float, percentile, max_loss_pct: float, max_down_pct: float) -> dict:
+    """Pass/fail.  SimCodec: bit transfer time percentile vs threshold, ROK unavailability, no RBAD (plus lost trips).
+    Frame codec: ROUND TRIP (from the echo in the frames) at the chosen percentile vs the limit, lost frames, ROK unavailability, no RBAD."""
     reasons: List[str] = []
-    tr = m["transfer"]
-    key = "max" if percentile in (100, "max") else f"p{int(percentile)}"
-    val = tr.get(key)
-    label = "The slowest bit" if key == "max" else f"{int(percentile)} % of bit changes"
-    basis = "from one Pi to the other" if tr["basis"] == "one_way" else "(estimated as half the round trip of the echo bit)"
-    if not tr["n"]:
-        reasons.append("No bit change made it across - check the link, the settings at both ends (PROTO A and B, TX_ID / RX_ID, baud) and that the other Pi is running.")
-    elif val is None:
-        reasons.append(f"Percentile {percentile} is not available for this run.")
-    elif val > threshold_ms:
-        reasons.append(f"{label} took {val:g} ms {basis} - the limit is {threshold_ms:g} ms.")
-    if tr.get("loss_pct", 0) > max_loss_pct:
-        reasons.append(f"{tr['loss_pct']:g} % of the bit changes ({tr['lost']} of {tr['sent']}) did not show up at the far end - the limit is {max_loss_pct:g} %.")
+    key = _pkey(percentile)
+    if m.get("frame_mode"):
+        rt, fr = m["rtt"], m["frames"]
+        val = rt.get(key)
+        label = "The slowest frame" if key == "max" else f"{_plabel(percentile)} of frames"
+        if not rt.get("n"):
+            reasons.append("No round trip could be measured - check the link, the settings at both ends (PROTO A and B, TX_ID / RX_ID, baud) and that the other Pi is running.")
+        elif val is None:
+            reasons.append(f"Percentile {percentile} is not available for this run.")
+        elif val > threshold_ms:
+            reasons.append(f"{label} needed a round trip of {val:g} ms - the limit is {threshold_ms:g} ms.")
+        if fr["lost_pct"] > max_loss_pct:
+            reasons.append(f"{fr['lost_pct']:g} % of the frames ({fr['lost']} of {fr['good'] + fr['lost']}) never arrived as a good frame - the limit is {max_loss_pct:g} %.")
+    else:
+        tr = m["transfer"]
+        val = tr.get(key)
+        label = "The slowest bit" if key == "max" else f"{_plabel(percentile)} of bit changes"
+        basis = "from one Pi to the other" if tr["basis"] == "one_way" else "(estimated as half the round trip of the echo bit)"
+        if not tr["n"]:
+            reasons.append("No bit change made it across - check the link, the settings at both ends (PROTO A and B, TX_ID / RX_ID, baud) and that the other Pi is running.")
+        elif val is None:
+            reasons.append(f"Percentile {percentile} is not available for this run.")
+        elif val > threshold_ms:
+            reasons.append(f"{label} took {val:g} ms {basis} - the limit is {threshold_ms:g} ms.")
+        if tr.get("loss_pct", 0) > max_loss_pct:
+            reasons.append(f"{tr['loss_pct']:g} % of the bit changes ({tr['lost']} of {tr['sent']}) did not show up at the far end - the limit is {max_loss_pct:g} %.")
     if m["unavail_pct"] > max_down_pct:
         reasons.append(f"ROK was 0 for {m['unavail_pct']:g} % of the time ({m['rok_drops']} drops, longest {m['longest_outage_ms']:g} ms) - the limit is {max_down_pct:g} %.")
     if m["rbad_events"]:
@@ -719,7 +882,7 @@ def verdict(m: dict, threshold_ms: float, percentile: int, max_loss_pct: float, 
     return {"pass": not reasons, "reasons": reasons}
 
 
-def _summary(self: "Emulator", threshold_ms: float = 60.0, percentile: int = 99, max_loss_pct: float = 0.1, max_down_pct: float = 0.1,
+def _summary(self: "Emulator", threshold_ms: float = 60.0, percentile=99, max_loss_pct: float = 0.1, max_down_pct: float = 0.1,
              far: Optional[dict] = None, one_way_ok: bool = False, tol_ms: float = 2.0, far_status: Optional[dict] = None) -> dict:
     """The test result: top-level keys follow the other tests' summaries (rtt_ms, sent, received, lost, verdict ...); summary['mirrored'] has the rest."""
     now = self._now()
@@ -728,16 +891,23 @@ def _summary(self: "Emulator", threshold_ms: float = 60.0, percentile: int = 99,
     flips_n = len(self.flips)
     note = None
     if far is not None and one_way_ok:
-        rows = transfer_times(self.flips, far.get("rmb_changes") or [], tol_ms)
+        fc, fl = far.get("rmb_changes") or [], list(self.flips)
+        if len(fc) >= REFLECT_KEEP and fc:                       # the far list only holds the newest changes of a very long run: do not call the older flips lost
+            fl = [f for f in fl if f["t_real_ns"] >= fc[0]["t_real_ns"] - int(5e9)]
+        rows = transfer_times(fl, fc, tol_ms)
         tt = [r["t_ms"] for r in rows if not r["lost"]]
         lost, sent, basis = sum(1 for r in rows if r["lost"]), len(rows), "one_way"
     else:
         tt = [r / 2.0 for r in self.rtt_ms]
-        lost, sent, basis = self.rtt_alarm_events, self.rtt_n, "rtt_half"
+        lost, sent, basis = (0 if self.codec.trip_frame else self.rtt_alarm_events), self.rtt_n, "rtt_half"
         if far is None:
             note = "The other Pi's outputs could not be read, so bit transfer time is estimated as half the round trip of the echo bit (TMB%d)." % self.s.echo_bit
+            if self.codec.trip_frame:
+                note = "The other Pi's outputs could not be read, so the one-way time is estimated as half the round trip (one-way needs GPS time)."
         elif not one_way_ok:
             note = "The two Pis' clocks are not synced closely enough to time a bit from one Pi to the other, so bit transfer time is estimated as half the round trip of the echo bit (TMB%d)." % self.s.echo_bit
+            if self.codec.trip_frame:
+                note = "The two Pis' clocks are not synced closely enough for a true one-way time (that needs GPS time), so it is estimated as half the round trip."
     tstats = stats_ms(tt)
     tstats.update({"basis": basis, "sent": sent, "lost": lost, "loss_pct": round(100.0 * lost / sent, 4) if sent else 0.0, "threshold_ms": threshold_ms,
                    "late": sum(1 for x in tt if x > threshold_ms), "flips": flips_n})
@@ -759,13 +929,33 @@ def _summary(self: "Emulator", threshold_ms: float = 60.0, percentile: int = 99,
         "driver_errors": dict(self.errors_seen), "tx_late_max_ms": round(self.tx_late_max_ns / 1e6, 3), "host_stalls": self.host_stalls, "tx_skipped": self.tx_skipped,
         "loopback_seen": st["loopback"], "ids_seen": dict(self.ids_seen), "events_log": self.events_view(5000), "echo_changes": self.echo_changes,
         "startup_junk": self.startup_junk,
+        "frame_mode": bool(self.codec.trip_frame), "frames": self.frames(),
+        "framer_resync_chars": self.framer.junk_chars if self.codec.trip_frame else None,
+        "one_way_gps": "one-way needs GPS time (not built in): the one-way figures are round trip / 2" if self.codec.trip_frame else None,
+        "trips_seen": len(self.flips),
     }
+    if self.codec.trip_frame:
+        m["packetization"] = RADIO.detect_bundling(self.gaps.to_dict(), self.rtt_ms, self.nominal_ns / 1e6)
+        m["packetization"]["gaps"] = self.gaps.to_dict()
+        m["bytes"] = RADIO.actual_usage(self.tx_count, self.ch.msgs_good, C.TripCodec.LEN, elapsed)
+        m["bytes"]["tx_link_bytes"], m["bytes"]["rx_link_bytes"] = self.tx_bytes, self.rx_bytes
+        if elapsed >= HOURLY_MIN_S:
+            for a_, b_ in self.ch.outages:
+                self.hours.add_outage(self._wall_s(a_), (b_ - a_) / 1e6)
+            m["hourly"] = self.hours.report()
     if far_status:
         m["far"] = {k: far_status.get(k) for k in ("name", "proto", "rok", "rbad", "cbad", "tx_id", "rx_id", "baud", "counters", "channel", "link")}
     v = verdict(m, threshold_ms, percentile, max_loss_pct, max_down_pct)
+    if m["frame_mode"]:                                          # the headline numbers are the frames and the round trip, not the trip bit
+        fr = m["frames"]
+        rt = m["rtt"]
+        sent, lost = fr["good"] + fr["lost"], fr["lost"]
+        tstats["late"] = self.rtt_hist.count_over(threshold_ms)
+        tstats = {**tstats, **{k: rt[k] for k in ("min", "p50", "p95", "p99", "p999", "max", "avg")}, "n": rt["n"]}
+        tstats["loss_pct"] = fr["lost_pct"]
     s = {"sent": sent, "received": tstats["n"], "lost": lost, "loss_pct": tstats["loss_pct"], "late": tstats["late"], "over_threshold": tstats["late"],
-         "over_threshold_pct": round(100.0 * tstats["late"] / sent, 4) if sent else 0.0, "duplicates": 0, "out_of_order": 0, "stale": 0, "corrupted": 0,
-         "rtt_ms": {k: tstats[k] for k in ("min", "p50", "p95", "p99", "max", "avg")}, "jitter_ms": m["rtt"].get("jitter_ms"), "stddev_ms": None,
+         "over_threshold_pct": round(100.0 * tstats["late"] / sent, 4) if sent else 0.0, "duplicates": (m["frames"] or {}).get("duplicates", 0), "out_of_order": (m["frames"] or {}).get("out_of_order", 0), "stale": 0, "corrupted": (m["frames"] or {}).get("crc_errors", 0),
+         "rtt_ms": {k: tstats[k] for k in ("min", "p50", "p95", "p99", "p999", "max", "avg")}, "jitter_ms": m["rtt"].get("jitter_ms"), "stddev_ms": None,
          "threshold_ms": threshold_ms, "one_way": False, "basis": "rtt",      # the one-way figure lives in summary["mirrored"]["transfer"]
          
          "idle": {"gaps": [], "count": 0, "lost": 0, "max_ms": None, "over_threshold": 0}, "mirrored": m, "verdict": v}

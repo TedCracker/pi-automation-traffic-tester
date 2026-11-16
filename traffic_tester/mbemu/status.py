@@ -7,7 +7,7 @@ from dataclasses import dataclass, field, asdict
 from typing import Callable, Deque, Dict, List, Optional, Tuple
 
 NS = 1_000_000_000
-REASONS = ("parity", "framing", "overrun", "consistency", "address", "timing")   # spec 3 / 8; "loopback" is counted next to them
+REASONS = ("parity", "framing", "overrun", "consistency", "crc", "address", "timing")   # spec 3 / 8; "loopback" is counted next to them
 
 # Setting names are LABELS: SEL models call them differently, so the screen lets you rename them.  Keys never change.
 DEFAULT_LABELS = {
@@ -21,7 +21,7 @@ DEFAULT_LABELS = {
 class Settings:
     proto: str = "A"                    # PROTO A / B: the two ends must be opposite
     codec: str = "sim"
-    baud: int = 19200
+    baud: int = 38400
     bytesize: int = 8
     parity: str = "N"
     stopbits: int = 1                   # 2 = the extra stop bit some equipment needs (10-bit characters)
@@ -47,10 +47,14 @@ class Settings:
     trip_bit: int = 1                   # the bit the test flips on a schedule (the "bit transfer time" probe)
     trip_every_s: float = 2.0           # 0 = no scheduled flips
     labels: Dict[str, str] = field(default_factory=dict)
+    role_names: Dict[str, str] = field(default_factory=dict)      # optional display name of each end, by PROTO ("A": "Substation relay ...", "B": "DER relay ...")
 
     # ---- derived
     @property
     def echo_role(self) -> str:
+        from .codec import get_codec
+        if get_codec(self.codec).trip_frame:
+            return "off"                # frame codec: the echo travels in the frame (sequence + timestamp), so no bit is reserved
         if self.echo == "auto":
             return "near" if self.proto == "A" else "far"
         return self.echo if self.echo in ("near", "far") else "off"

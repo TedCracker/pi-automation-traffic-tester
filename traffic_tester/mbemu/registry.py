@@ -114,7 +114,7 @@ class Registry:
 
     # ------------------------------------------------------------ in-process self-test (two instances, one process)
     def start_selftest(self, duration_s: float = 60.0, a: Optional[dict] = None, b: Optional[dict] = None, impair_a=None, impair_b=None,
-                       baud: int = 19200, names=("Emulator A", "Emulator B")) -> dict:
+                       baud: int = 38400, names=("Emulator A", "Emulator B")) -> dict:
         with self.lock:
             if self.local is not None and self.local.running and self.role != "selftest":
                 raise RuntimeError("A test is running on this Pi: stop it before starting the self-test.")

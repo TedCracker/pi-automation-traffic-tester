@@ -12,7 +12,7 @@ from .mbemu import links as L
 from .mbemu.engine import NS
 from .mbemu.pairing import far_settings
 
-NOTE = "SimCodec: our own framing for emulator-to-emulator tests. Not SEL wire-compatible."
+NOTE = "SimCodec / Trip frame: our own framing for emulator-to-emulator tests. Not SEL wire-compatible."
 
 
 def baud_of(p: dict) -> int:
@@ -87,13 +87,15 @@ class MirroredRun:
     def _state(self, e: dict):
         em = self.emu
         thr = float(self.p["threshold_ms"])
-        rt = [x / 2.0 for x in em.rtt_ms[-2000:]]
+        frame = em.codec.trip_frame
+        k = 1.0 if frame else 2.0                         # the frame codec is judged on the full round trip, the bit-echo mode on half of it
+        rt = [x / k for x in em.rtt_ms[-2000:]]
         done = em.rtt_n
-        p99 = M.percentile(rt, 99) if rt else None
-        late = sum(1 for x in rt if x > thr)
+        p99 = (em.rtt_hist.pct(99) if frame else M.percentile(rt, 99)) if rt else None
+        late = em.rtt_hist.count_over(thr) if frame else sum(1 for x in rt if x > thr)
         self.emit({"ev": "state", "phase": "steady", "elapsed_s": round(e["t_s"], 1), "total_s": self.p["duration_s"], "sent": done, "received": done,
-                   "lost": em.rtt_alarm_events, "late": late, "now_ms": None if em.rtt_last is None else round(em.rtt_last / 2, 3),
-                   "p99_ms": None if p99 is None else round(p99, 2), "max_ms": None if not rt else round(max(rt), 2),
+                   "lost": em.frames_lost if frame else em.rtt_alarm_events, "late": late, "now_ms": None if em.rtt_last is None else round(em.rtt_last / k, 3),
+                   "p99_ms": None if p99 is None else round(p99, 2), "max_ms": None if not rt else round(max(rt) if not frame else em.rtt_hist.max, 2),
                    "link": "red" if not e.get("rok") else "ok", "rok": e.get("rok"), "rbad": e.get("rbad"), "cbad": e.get("cbad")})
 
     def run(self) -> dict:
@@ -166,18 +168,21 @@ class MirroredRun:
             return
         step = max(1, n // 1500)
         seq = 0
+        k = 1000 if em.codec.trip_frame else 500              # microseconds per ms of RTT: the frame codec is charted as the full round trip, the echo-bit mode as RTT / 2
         for i in range(0, n, step):
-            us = int(rs[i] * 500)                             # RTT / 2 in microseconds
+            us = int(rs[i] * k)
             self.on_message({"seq": seq, "phase": "steady", "idle_gap_s": None, "rtt_us": us, "status": M.LATE if us > thr_us else M.OK,
                              "t_send_ms": ts[i] * 1000.0, "up_us": None, "down_us": None})
             seq += 1
+        # one row per second on a short run, per minute once the run is longer than an hour: a 24 h run stays at 1440 rows (a few hundred KB), not 86 400
+        bucket = 1 if (self.p.get("duration_s") or 0) <= 3600 else 60
         sec: dict = {}
         for t, r in zip(ts, rs):
-            sec.setdefault(int(t), []).append(r * 500)
-        for k in sorted(sec):
-            v = sorted(sec[k])
+            sec.setdefault(int(t // bucket) * bucket, []).append(r * k)
+        for key in sorted(sec):
+            v = sorted(sec[key])
             pick = lambda q: int(v[min(len(v) - 1, int(q * (len(v) - 1)))])
-            self.on_interval({"t_offset_s": k, "sent": len(v), "received": len(v), "lost": 0, "late": sum(1 for x in v if x > thr_us),
+            self.on_interval({"t_offset_s": key, "sent": len(v), "received": len(v), "lost": 0, "late": sum(1 for x in v if x > thr_us),
                               "p50_us": pick(0.5), "p95_us": pick(0.95), "p99_us": pick(0.99), "max_us": int(v[-1])})
 
 

@@ -4,7 +4,7 @@
   phases:  main    Pi 1 boots -> only the "Set up this Pi" screen (phone size) -> name it -> hostname / Wi-Fi name / marker; Pi 2 boots on the same
                    network -> it finds Pi 1 over mDNS and offers the next free name; Imager-style first-boot seed (user + Wi-Fi) on Pi 3
            update  'Check online' from the booted image against the real releases repo (and Install, when a newer release exists)
-Prints 'CHECK name | pass/FAIL/unresolved | evidence' lines for checks.md. Needs docker, the tt-qemu-image image, build-image/pi-traffic-tester-<ver>.img (--keep)."""
+Prints 'CHECK name | pass/FAIL/unresolved | evidence' lines for docs/dev/checks.md. Needs docker, the tt-qemu-image image, build-image/pi-traffic-tester-<ver>.img (--keep)."""
 import json
 import os
 import re
