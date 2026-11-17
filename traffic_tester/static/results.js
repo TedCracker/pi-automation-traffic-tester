@@ -235,13 +235,14 @@ const mbEmu = (s, m, id) => {
   return `<div class="card" data-testid="mb-result"><h2>Mirrored Bits channel <span class="tag preset" style="text-transform:none">${num(m.baud)} baud · PROTO ${esc(m.proto)}</span></h2>
     <p class="muted" style="margin:0 0 8px">${esc(m.codec)}. ${num(m.tx_msgs)} messages sent (${num(m.tx_rate)} per second, one every ${m.wire_period_ms} ms), ${num(m.rx_good)} good ones received here, ${num(rejTot)} rejected.</p>
     <div class="tiles">${m.frame_mode ? frameTiles(m, t, r) : ''}${m.frame_mode ? '' : card('Bit transfer time', t.p99 == null ? '–' : ms(t.p99), `p99 · p50 ${ms(t.p50)} · max ${ms(t.max)}`, t.p99 > (t.threshold_ms || 1e9) ? 'bad' : 'good', 'How long a bit change takes to cross the link. ' + (t.basis === 'one_way' ? 'Measured one way (both clocks synced).' : 'Estimated as half the round trip of the echo bit.'))}
-      ${m.frame_mode ? '' : card('Round trip (echo bit)', ms(r.p50), `p99 ${ms(r.p99)} · max ${ms(r.max)} · jitter ${ms(r.jitter_ms)}`, r.alarm_events ? 'bad' : 'good')}
+      ${m.frame_mode ? '' : card('Round trip (echo bit)', (m.echo || {}).unreliable ? 'not measured' : ms(r.p50), `p99 ${ms(r.p99)} · max ${ms(r.max)} · jitter ${ms(r.jitter_ms)}`, r.alarm_events ? 'bad' : 'good')}
       ${card('ROK availability', pct(m.availability_pct), `ROK was 0 for ${pct(m.unavail_pct)} of the time`, m.unavail_pct > 0.1 ? 'warn' : 'good')}
       ${card('Longest outage', (m.longest_outage_ms || 0) + ' ms', `${num(m.outage_count)} outage(s) · ${num(m.rok_drops)} ROK drops`, m.longest_outage_ms ? 'warn' : 'good')}
       ${card('RBAD / CBAD', `${num(m.rbad_events)} / ${num(m.cbad_events)}`, `events · lost-channel ${num(m.lost_events)}`, m.rbad_events || m.cbad_events ? 'bad' : 'good')}
       ${card(m.frame_mode ? 'Slow round trips' : 'Echo alarms', num(r.alarm_events), `round trip over ${r.rtt_max_ms} ms`, r.alarm_events ? 'bad' : 'good')}</div>
     ${m.one_way_gps ? `<p class="muted" data-testid="mb-gps-note">${esc(m.one_way_gps)}.</p>` : ''}
     ${m.one_way_note ? `<p class="muted">${esc(m.one_way_note)}</p>` : ''}
+    ${m.echo_note ? `<p class="muted" data-testid="mb-echo-note">${esc(m.echo_note)}</p>` : ''}
     <div class="grid g2" style="margin-top:12px"><div class="scroll"><table><thead><tr><th>Rejected messages</th><th>Count</th></tr></thead><tbody>${REJ.map(k => `<tr><td>${k}</td><td>${num(rej[k] || 0)}</td></tr>`).join('')}</tbody></table>
       ${m.overrun_available === false ? '<p class="muted">Overrun counting is not available on this serial port (the driver has no counter).</p>' : ''}</div>
       <div><b>Gap between good messages</b> <span class="muted">(nominal ${m.histogram ? m.histogram.nominal_ms : '–'} ms; shows radio bunching)</span>

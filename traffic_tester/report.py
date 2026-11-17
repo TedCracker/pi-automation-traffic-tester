@@ -167,6 +167,8 @@ def _mb_emulator(mb: dict) -> List:
         out.append(Paragraph("Impairment injector was on: " + ", ".join(on + (["link broken by hand"] if imp.get("break_link") else [])), BODY))
     if mb.get("one_way_note"):
         out.append(Paragraph(str(mb["one_way_note"]), BODY))
+    if mb.get("echo_note"):
+        out.append(Paragraph(str(mb["echo_note"]), BODY))
     far = mb.get("far")
     if far:
         c = far.get("counters") or {}

@@ -31,6 +31,7 @@ RTT_KEEP = 200_000
 HOURLY_MIN_S = 3600                    # runs at least this long get the by-hour-of-day breakdown
 FLIPS_KEEP = 50_000
 REFLECT_KEEP = 50_000
+ECHO_TIMEOUT_FLOOR_NS = 2 * NS          # an echo edge that has not come back after max(2 x RTT_MAX, this) is given up on (and the next sample is discarded)
 
 
 def _pctl(xs: List[float], p: float) -> Optional[float]:
@@ -159,8 +160,13 @@ class Emulator:
         self.ids_seen: Dict[int, int] = {}
         # echo / round trip (spec 8)
         self.echo_tx = 0                        # value we currently send on the echo bit
-        self.t_echo_tx: Optional[int] = None    # when we last changed it
+        self.t_echo_tx: Optional[int] = None    # when we last launched an edge (near end)
         self.echo_changes = 0
+        self.echo_pend: Optional[Tuple[int, int]] = None    # near end: (value, time) of the ONE edge in flight; a new one is launched only when it is back
+        self.echo_dirty = False                 # near end: the next completed edge is not trusted (after a ROK drop or a timeout) and is discarded
+        self.echo_discarded = 0                 # edges launched but not turned into a sample: ROK dropped on the way, or the first one back after a drop-out / timeout
+        self.echo_timeouts = 0                  # edges that never came back within the timeout
+        self._echo_far_v = int(self.s.rmb_default[self.echo_idx]) if self.echo_on else 0   # far end: the echo value we hold (kept through a ROK drop)
         self.rtt_ms: List[float] = []           # every sample (thinned when huge)
         self.rtt_t: List[float] = []            # ... and when (seconds since start), same thinning
         self._rtt_stride = 1
@@ -334,15 +340,48 @@ class Emulator:
         bits = self.io.mask
         if self.echo_on:
             e = self.echo_idx
-            role = self.s.echo_role
-            rmb = self.rx.state[e]
-            v = (1 - rmb) if role == "near" else rmb
+            if self.s.echo_role == "near":
+                self._echo_near(now)
+                v = self.echo_tx
+            else:                                      # far end: reflect what we received.  While ROK is 0 the received bit sits at its default; hold the last real
+                if self.ch.rok:                        # value instead, so a drop-out at this end cannot look like an echo of the near end's edge
+                    self._echo_far_v = self.rx.state[e]
+                v = self._echo_far_v
+                if v != self.echo_tx:
+                    self.echo_tx = v
+                    self.echo_changes += 1
             bits = (bits & ~(1 << e)) | (v << e)
-            if v != self.echo_tx:
-                self.echo_tx = v
-                self.t_echo_tx = now
-                self.echo_changes += 1
         return bits
+
+    def _echo_timeout_ns(self) -> int:
+        return max(int(2 * self.s.rtt_max_ms * 1e6), ECHO_TIMEOUT_FLOOR_NS)
+
+    def _echo_near(self, now: int) -> None:
+        """Near end of the echo loop.  ONE edge travels at a time: we flip the echo bit only when the far end has reflected our current value back
+        (RMB = TMB) and the link is up, then wait for the reflection of the new value.  The round trip is flip -> that reflection.  Receive changes
+        that are not that reflection (the bit falling to its default when ROK drops, a late echo of an old edge) never start or stop a measurement."""
+        pend = self.echo_pend
+        if pend is not None and now - pend[1] > self._echo_timeout_ns():
+            self.echo_pend = pend = None                # the edge is lost (or very late): give up, and do not trust the next one (the old one may still turn up)
+            self.echo_timeouts += 1
+            self.echo_dirty = True
+        if pend is None and self.ch.rok and self.rx.state[self.echo_idx] == self.echo_tx:
+            self.echo_tx = 1 - self.echo_tx
+            self.echo_pend = (self.echo_tx, now)
+            self.t_echo_tx = now
+            self.echo_changes += 1
+
+    def _echo_returned(self, t: int) -> None:
+        """The echo bit at this end changed through a good message while ROK was already 1: is it the edge we sent?"""
+        pend = self.echo_pend
+        if self.s.echo_role != "near" or pend is None or self.rx.state[self.echo_idx] != pend[0]:
+            return                                      # not the reflection of the edge in flight: ignore (a stale or default-driven change)
+        self.echo_pend = None
+        if self.echo_dirty:
+            self.echo_dirty = False                     # the first edge after a drop-out / timeout / start: pairing is not certain, so no sample
+            self.echo_discarded += 1
+            return
+        self._rtt_record(t, (t - pend[1]) / 1e6)
 
     def _tx_step(self, now: int) -> None:
         if now < self._next_tx:
@@ -540,6 +579,10 @@ class Emulator:
             self._to_defaults(t, t_r)
 
     def _to_defaults(self, t: int, t_r: int) -> None:
+        if self.echo_pend is not None:                  # ROK dropped with an edge in flight: what comes back after the drop-out is not a round trip
+            self.echo_pend = None
+            self.echo_dirty = True
+            self.echo_discarded += 1
         changed = self.rx.to_defaults()
         self._rmb_changed(changed, t, t_r, via_msg=False, rok_before=0)
         self.io.write_outs(self.rx.value)
@@ -549,7 +592,7 @@ class Emulator:
             echo = self.echo_on and i == self.echo_idx
             if echo:
                 if via_msg and rok_before:
-                    self._rtt_sample(t)
+                    self._echo_returned(t)
                 continue
             if not via_msg:                          # ROK went 0: the bit falls back to its default (logged, but not a delivered change)
                 self.log(t, "RMB", f"RMB{i + 1}", self.rx.state[i], "default (ROK=0)")
@@ -569,13 +612,6 @@ class Emulator:
                 self.log(t, "RMB", f"RMB{i + 1}", v, "")
                 self.rmb_changes.append({"bit": i + 1, "value": v, "t_mono_ns": t, "t_real_ns": t_r, "via_msg": True})
         self._logged_mask = (self._logged_mask & ~diff) | (self.rx.value & diff)
-
-    def _rtt_sample(self, t: int) -> None:
-        if self.s.echo_role != "near" or self.t_echo_tx is None:
-            return
-        if self.ch.rok_since is not None and self.t_echo_tx < self.ch.rok_since:
-            return                                      # the TMB change was made before the link came back: not a round trip
-        self._rtt_record(t, (t - self.t_echo_tx) / 1e6)
 
     def _rtt_record(self, t: int, rtt: float) -> None:
         """One round-trip measurement (echo bit, or the echo in a frame)."""
@@ -623,7 +659,7 @@ class Emulator:
                 self.chips_rx.append((self.rx_chip_id, now, None, "missing"))
                 self._to_defaults(now, self.real())
             if self.s.echo_role == "near" and self.ch.rok and self.t_echo_tx is not None and not self.rtt_alarm:
-                ref = max(self.t_echo_tx, self.ch.rok_since or 0)
+                ref = max(self.t_echo_tx, self.ch.rok_since or 0)         # time since the last edge was launched (or the link came back)
                 if now - ref > int(self.s.rtt_max_ms * 1e6):
                     self._set_alarm(now, None)
         self.io.poll_gpio()
@@ -797,18 +833,30 @@ def events_to_csv(rows: List[dict], started_at: str = "") -> str:
 # ======================================================================= bit transfer time (flip IN -> OUT at the other end)
 def transfer_times(flips: List[dict], far_changes: List[dict], tol_ms: float = 2.0, window_s: float = 5.0) -> List[dict]:
     """For every IN flip at one end, the first matching OUT change (same bit, same value) at the other end within `window_s`.
-    Valid to the accuracy of the two clocks (the caller checks they are synced).  Returns [{"bit","t_ms" (transfer time),"lost"}]."""
+    Valid to the accuracy of the two clocks (the caller checks they are synced).  Returns [{"bit","t_ms" (transfer time),"lost","ambiguous"}].
+
+    A pairing is only trusted when the edge cannot be confused with another one: the same bit must not have been flipped again while this edge was on its
+    way (the change at the far end may belong to that later flip, this edge having been lost), and the previous flip of the bit must have arrived before this
+    one was made (otherwise the change we found may be the older edge still arriving).  Such a flip is reported as ambiguous (t_ms None, lost False) and
+    leaves its change free for the next flip.  Flips made faster than they cross the link therefore give no figure, never one that is far too long or too short."""
     out = []
     by_bit: Dict[int, List[dict]] = {}
     for c in far_changes:
         if c.get("via_msg", True):
             by_bit.setdefault(c["bit"], []).append(c)
+    times: Dict[int, List[int]] = {}                       # flip times per bit, sorted
+    for f in flips:
+        times.setdefault(f["bit"], []).append(f["t_real_ns"])
+    for v in times.values():
+        v.sort()
     tol = int(tol_ms * 1e6)
     win = int(window_s * 1e9)
     pos: Dict[int, int] = {}
+    landed: Dict[int, int] = {}                            # per bit: when the previous flip's change showed up at the far end (absent = it did not)
     for f in flips:
-        lst = by_bit.get(f["bit"], [])
-        j = pos.get(f["bit"], 0)
+        bit = f["bit"]
+        lst = by_bit.get(bit, [])
+        j = pos.get(bit, 0)
         found = None
         while j < len(lst):
             c = lst[j]
@@ -823,11 +871,20 @@ def transfer_times(flips: List[dict], far_changes: List[dict], tol_ms: float = 2
                 j += 1
                 break
             j += 1
+        prev_land = landed.pop(bit, None)
         if found is None:
-            out.append({"bit": f["bit"], "t_ms": None, "lost": True})
-        else:
-            pos[f["bit"]] = j
-            out.append({"bit": f["bit"], "t_ms": round(max(0, found) / 1e6, 3), "lost": False})
+            out.append({"bit": bit, "t_ms": None, "lost": True, "ambiguous": False})
+            continue
+        t_c = f["t_real_ns"] + found
+        ts = times[bit]
+        flipped_again = bisect.bisect_left(ts, t_c - tol) - bisect.bisect_right(ts, f["t_real_ns"]) > 0     # another flip of this bit while the edge was on its way
+        older_edge = prev_land is not None and prev_land > f["t_real_ns"] - tol
+        landed[bit] = t_c
+        if flipped_again or older_edge:
+            out.append({"bit": bit, "t_ms": None, "lost": False, "ambiguous": True})
+            continue
+        pos[bit] = j
+        out.append({"bit": bit, "t_ms": round(max(0, found) / 1e6, 3), "lost": False, "ambiguous": False})
     return out
 
 
@@ -867,7 +924,11 @@ def verdict(m: dict, threshold_ms: float, percentile, max_loss_pct: float, max_d
         val = tr.get(key)
         label = "The slowest bit" if key == "max" else f"{_plabel(percentile)} of bit changes"
         basis = "from one Pi to the other" if tr["basis"] == "one_way" else "(estimated as half the round trip of the echo bit)"
-        if not tr["n"]:
+        if not tr["n"] and (m.get("echo") or {}).get("unreliable") and tr["basis"] != "one_way":
+            reasons.append("The round trip could not be measured reliably (the echo bit kept being interrupted by drop-outs of the link), so there is no bit transfer time to judge.")
+        elif not tr["n"] and tr.get("ambiguous"):
+            reasons.append("The bit changes could not be matched to the changes at the other end (flipped faster than they cross the link), so there is no bit transfer time to judge.")
+        elif not tr["n"]:
             reasons.append("No bit change made it across - check the link, the settings at both ends (PROTO A and B, TX_ID / RX_ID, baud) and that the other Pi is running.")
         elif val is None:
             reasons.append(f"Percentile {percentile} is not available for this run.")
@@ -890,13 +951,18 @@ def _summary(self: "Emulator", threshold_ms: float = 60.0, percentile=99, max_lo
         st = self.ch.stats(now)
     flips_n = len(self.flips)
     note = None
+    ambiguous = 0
     if far is not None and one_way_ok:
         fc, fl = far.get("rmb_changes") or [], list(self.flips)
         if len(fc) >= REFLECT_KEEP and fc:                       # the far list only holds the newest changes of a very long run: do not call the older flips lost
             fl = [f for f in fl if f["t_real_ns"] >= fc[0]["t_real_ns"] - int(5e9)]
         rows = transfer_times(fl, fc, tol_ms)
-        tt = [r["t_ms"] for r in rows if not r["lost"]]
-        lost, sent, basis = sum(1 for r in rows if r["lost"]), len(rows), "one_way"
+        ambiguous = sum(1 for r in rows if r.get("ambiguous"))
+        tt = [r["t_ms"] for r in rows if not r["lost"] and not r.get("ambiguous")]
+        lost, sent, basis = sum(1 for r in rows if r["lost"]), len(rows) - ambiguous, "one_way"
+        if ambiguous:
+            note = (f"{ambiguous} bit change(s) were left out of the bit transfer time: the same bit was flipped again before the first change showed up at the "
+                    "other end (flipped faster than it crosses the link, or a change was lost), so the two could not be matched with certainty.")
     else:
         tt = [r / 2.0 for r in self.rtt_ms]
         lost, sent, basis = (0 if self.codec.trip_frame else self.rtt_alarm_events), self.rtt_n, "rtt_half"
@@ -908,9 +974,21 @@ def _summary(self: "Emulator", threshold_ms: float = 60.0, percentile=99, max_lo
             note = "The two Pis' clocks are not synced closely enough to time a bit from one Pi to the other, so bit transfer time is estimated as half the round trip of the echo bit (TMB%d)." % self.s.echo_bit
             if self.codec.trip_frame:
                 note = "The two Pis' clocks are not synced closely enough for a true one-way time (that needs GPS time), so it is estimated as half the round trip."
+    # the echo bit: edges that came back but could not be trusted (drop-outs, lost edges) are discarded, never turned into a number
+    echo_n = self.rtt_n
+    echo_note = None
+    echo_unreliable = bool(self.echo_on and not self.codec.trip_frame and not echo_n and (self.echo_discarded or self.echo_timeouts))
+    if self.echo_on and not self.codec.trip_frame and (self.echo_discarded or self.echo_timeouts):
+        bad = self.echo_discarded + self.echo_timeouts
+        if echo_unreliable:
+            en = (f"The round trip could not be measured reliably: {bad} echo sample(s) discarded (the link dropped out while the echo bit was on its way, "
+                  "or it did not come back in time), so no round trip is shown.")
+        else:
+            en = (f"{bad} echo sample(s) were discarded because the link dropped out or the echo did not come back; the round trip uses the {echo_n} clean ones.")
+        echo_note = en
     tstats = stats_ms(tt)
     tstats.update({"basis": basis, "sent": sent, "lost": lost, "loss_pct": round(100.0 * lost / sent, 4) if sent else 0.0, "threshold_ms": threshold_ms,
-                   "late": sum(1 for x in tt if x > threshold_ms), "flips": flips_n})
+                   "late": sum(1 for x in tt if x > threshold_ms), "flips": flips_n, "ambiguous": ambiguous})
     elapsed = max(1e-9, (now - self.t0) / NS)
     outs = [{"start_s": self._t_s(a), "dur_ms": round((b - a) / 1e6, 3)} for a, b in self.ch.outages[-200:]]
     if self.ch._outage_start is not None and self.ch.first_rok is not None:
@@ -923,8 +1001,9 @@ def _summary(self: "Emulator", threshold_ms: float = 60.0, percentile=99, max_lo
         "rok_drops": st["rok_drops"], "rbad_events": st["rbad_events"], "cbad_events": st["cbad_events"], "lost_events": st["lost_events"],
         "unavail_pct": st["unavail_pct"], "availability_pct": st["availability_pct"], "down_pct": st["unavail_pct"], "longest_outage_ms": st["longest_outage_ms"],
         "outage_count": st["outage_count"], "rbad_total_s": st["rbad_total_s"], "first_rok_s": st["first_rok_s"], "outages": outs,
-        "histogram": self.histogram(), "rtt": self.rtt_stats(True), "transfer": tstats, "echo": {"bit": self.s.echo_bit if self.echo_on else None, "role": self.s.echo_role, "cycles": self.echo_changes},
-        "impair": {**self.imp.cfg, **self.imp.stats()}, "events_total": self.events_total, "one_way_note": note,
+        "histogram": self.histogram(), "rtt": self.rtt_stats(True), "transfer": tstats, "echo": {"bit": self.s.echo_bit if self.echo_on else None, "role": self.s.echo_role, "cycles": self.echo_changes,
+                                                                    "discarded": self.echo_discarded, "timeouts": self.echo_timeouts, "unreliable": echo_unreliable},
+        "impair": {**self.imp.cfg, **self.imp.stats()}, "events_total": self.events_total, "one_way_note": note, "echo_note": echo_note,
         "overrun_available": bool(self.link.overrun_available) if getattr(self.link, "char_mode", "plain") == "parmrk" else None,
         "driver_errors": dict(self.errors_seen), "tx_late_max_ms": round(self.tx_late_max_ns / 1e6, 3), "host_stalls": self.host_stalls, "tx_skipped": self.tx_skipped,
         "loopback_seen": st["loopback"], "ids_seen": dict(self.ids_seen), "events_log": self.events_view(5000), "echo_changes": self.echo_changes,

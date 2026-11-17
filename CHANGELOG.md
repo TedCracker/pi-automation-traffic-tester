@@ -2,6 +2,11 @@
 
 One entry per version, newest first. The About page, "Check online" and the release notes are all built from this file.
 
+## 1.7.1 — 2026-11-16
+- **Mirrored Bits round trip and bit transfer time are now right over slow links like cellular radios.** Before, lost frames and short drop-outs of the link made the echo bit start over, so the round trip and the bit transfer time could read under 1 ms (a real round trip over the Orbit radios is 130 to 250 ms). The echo now keeps one change in flight, pairs only the change that really came back, and throws away any it cannot be sure of. Over a fast link (null-modem cable) the numbers are the same as before.
+- **Honest when it cannot measure.** If drop-outs keep interrupting the echo, Results says "The round trip could not be measured reliably" and how many echo samples were discarded, instead of showing a number. Bit changes timed from one Pi to the other are left out the same way when two of them cannot be told apart (flipped faster than they cross the link).
+- The DER transfer trip tests (trip frames) and the message format on the wire are unchanged.
+
 ## 1.7.0 — 2026-11-15
 - **"Ask Claude" and Remote Control are gone.** The chat panel, the Claude Code card in Settings, the sign-in and Remote Control are removed from the app, the installer and the update. The tester itself works exactly as before, and the AI guide is still there for any AI assistant you want to use with it.
 - **Updating cleans up older installs.** A Pi that had Ask Claude gets its Remote Control units, the Claude Code package and Anthropic's apt repository, the saved sign-in and the app's change history removed once, on the first start of 1.7.0. Saved tests and results are never touched.
