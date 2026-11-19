@@ -136,3 +136,45 @@ def test_transfer_times_never_goes_below_the_real_delay_when_flips_overlap_on_a_
         rows = transfer_times(flips, far)
         assert all(r["t_ms"] is None or r["t_ms"] == 150.0 for r in rows), (gap, rows)
         assert sum(1 for r in rows if r["t_ms"] == 150.0) >= 0
+
+
+class _ReplayLink(__import__("mbecho").DelayLink):
+    """UDP-over-cellular like the Orbit radios: serial data goes out in small datagrams, in order, at a fixed delay; now and then a datagram is ALSO
+    delivered a second time, 5-300 ms late (old data replayed).  Before the fix the echo bit read this as round trips of ~0-3 ms on a 200 ms link."""
+    PKT_MS, P, LATE_MS = 4, 0.03, 300
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.buf, self.t0 = [], None
+
+    def send(self, data):
+        self.sent_n += 1
+        t = self.clk()
+        self.t0 = t if self.t0 is None else self.t0
+        self.buf.append(bytes(data))
+        if t - self.t0 >= self.PKT_MS * MS:
+            for x in self.buf:
+                self.peer.q.append((x, t + self.delay))
+            if self.rng.random() < self.P:
+                late = int(self.rng.uniform(5, self.LATE_MS) * MS)
+                for x in self.buf:
+                    self.peer.q.append((x, t + self.delay + late))
+            self.buf, self.t0 = [], t
+        return len(data)
+
+    def recv(self, timeout_s):
+        t = self.clk()
+        due = sorted([(d, a, a) for d, a in self.q if a <= t], key=lambda x: x[1])
+        self.q = [(d, a) for d, a in self.q if a > t]
+        return due
+
+
+@pytest.mark.parametrize("seed", [1, 3])
+def test_old_data_replayed_by_a_cellular_link_does_not_fake_a_fast_round_trip(monkeypatch, seed):
+    import mbecho
+    monkeypatch.setattr(mbecho, "DelayLink", _ReplayLink)
+    ea, eb = run_echo(delay_ms=100.0, loss=0.0, seconds=40.0, seed=seed)
+    assert ea.echo_stale > 0                                    # the replays really happened and were seen
+    _ok_samples(ea, 200 - 10, 200 + 15, 50)                     # true round trip 200 ms + up to one 4 ms datagram
+    m = ea.summary(threshold_ms=60.0)["mirrored"]
+    assert "late or twice" in (m["echo_note"] or "") and m["echo"]["stale"] == ea.echo_stale

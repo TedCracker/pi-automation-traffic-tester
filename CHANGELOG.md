@@ -2,6 +2,9 @@
 
 One entry per version, newest first. The About page, "Check online" and the release notes are all built from this file.
 
+## 1.12.2 — 2026-11-19
+- **Mirrored Bits round trip is right over the Orbit radios.** A cellular link sometimes delivers old serial data late or twice. The echo bit took that for its own edge coming back, so the round trip showed impossible values (0.04 to 30 ms on a link that really takes about 200 ms) and the RTT alarm kept flipping. Now a returned echo only counts once it has held; a brief flip back is ignored and counted. The result says how many times the link replayed old data. Bench (null-modem) results are unchanged.
+
 ## 1.12.1 — 2026-11-19
 - **Tests list: tapping a test always works.** After you opened a test, went to another tab (Home, Results) and came back, the cards ignored every tap (▶ Run, Edit, the info sheet) until you reloaded the page. They answer right away now.
 - **A test's page has a clear ▶ Run test button.** It sits in the bar at the bottom of the test page (above the tab bar on a phone), always on screen, with Save and Repeat beside it. It is greyed while the Pi checks the path and says what is missing. Test-set pages (DA, FAN) have it too. The START in the top bar still does the same thing.

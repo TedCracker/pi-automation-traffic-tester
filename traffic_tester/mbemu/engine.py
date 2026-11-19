@@ -31,6 +31,9 @@ RTT_KEEP = 200_000
 HOURLY_MIN_S = 3600                    # runs at least this long get the by-hour-of-day breakdown
 FLIPS_KEEP = 50_000
 REFLECT_KEEP = 50_000
+ECHO_HOLD_NS = 60_000_000              # a returned echo edge counts only after it has HELD this long: a cellular/UDP link can deliver old serial data late or twice,
+                                       # which flips the bit for a moment (seen on the Orbit radios: round trips of 0.04-30 ms on a ~200 ms link); the real stream then flips it back
+ECHO_REVERT_SHORT_NS = 10_000_000      # a flip-back shorter than this right after a return is old data replayed AFTER the real return: keep the first return time
 ECHO_TIMEOUT_FLOOR_NS = 2 * NS          # an echo edge that has not come back after max(2 x RTT_MAX, this) is given up on (and the next sample is discarded)
 
 
@@ -166,6 +169,11 @@ class Emulator:
         self.echo_dirty = False                 # near end: the next completed edge is not trusted (after a ROK drop or a timeout) and is discarded
         self.echo_discarded = 0                 # edges launched but not turned into a sample: ROK dropped on the way, or the first one back after a drop-out / timeout
         self.echo_timeouts = 0                  # edges that never came back within the timeout
+        self.echo_cand: Optional[int] = None    # near end: when the edge in flight seemed to come back (confirmed after ECHO_HOLD_NS without flipping back)
+        self._echo_hold_from: Optional[int] = None  # when the current run of 'returned' messages began (the hold is measured from here)
+        self._echo_cand_prev: Optional[int] = None  # the candidate time before the last flip-back, and when that flip-back began
+        self._echo_revert_t: Optional[int] = None
+        self.echo_stale = 0                     # returns that flipped back within the hold: old data delivered late / twice by the link, not a round trip
         self._echo_far_v = int(self.s.rmb_default[self.echo_idx]) if self.echo_on else 0   # far end: the echo value we hold (kept through a ROK drop)
         self.rtt_ms: List[float] = []           # every sample (thinned when huge)
         self.rtt_t: List[float] = []            # ... and when (seconds since start), same thinning
@@ -353,6 +361,13 @@ class Emulator:
             bits = (bits & ~(1 << e)) | (v << e)
         return bits
 
+    def _echo_hold_ns(self) -> int:
+        """How long a returned edge must hold: ECHO_HOLD_NS until a round trip is known, then half the last one (at least 2 ms, at most ECHO_HOLD_NS), so a
+        fast wire (round trip ~4 ms, nothing to replay) keeps its sample rate while a slow radio link gets the full guard."""
+        if self.rtt_last is None:
+            return ECHO_HOLD_NS
+        return int(min(ECHO_HOLD_NS, max(2_000_000, self.rtt_last * 1e6 / 2)))
+
     def _echo_timeout_ns(self) -> int:
         return max(int(2 * self.s.rtt_max_ms * 1e6), ECHO_TIMEOUT_FLOOR_NS)
 
@@ -361,8 +376,12 @@ class Emulator:
         (RMB = TMB) and the link is up, then wait for the reflection of the new value.  The round trip is flip -> that reflection.  Receive changes
         that are not that reflection (the bit falling to its default when ROK drops, a late echo of an old edge) never start or stop a measurement."""
         pend = self.echo_pend
+        if pend is not None and self.echo_cand is not None and now - self._echo_hold_from >= self._echo_hold_ns():
+            self._echo_confirmed(pend)
+            pend = None
         if pend is not None and now - pend[1] > self._echo_timeout_ns():
-            self.echo_pend = pend = None                # the edge is lost (or very late): give up, and do not trust the next one (the old one may still turn up)
+            self.echo_pend = pend = None
+            self._echo_clear()                # the edge is lost (or very late): give up, and do not trust the next one (the old one may still turn up)
             self.echo_timeouts += 1
             self.echo_dirty = True
         if pend is None and self.ch.rok and self.rx.state[self.echo_idx] == self.echo_tx:
@@ -372,13 +391,35 @@ class Emulator:
             self.echo_changes += 1
 
     def _echo_returned(self, t: int) -> None:
-        """The echo bit at this end changed through a good message while ROK was already 1: is it the edge we sent?"""
+        """The echo bit at this end changed through a good message while ROK was already 1.  If it now shows the edge in flight, that is a CANDIDATE return,
+        timed now but only counted once it has held for ECHO_HOLD_NS (see _echo_near).  If it flips back first, the 'return' was old data the link delivered
+        late or twice (UDP over cellular can reorder and duplicate): drop the candidate and keep waiting for the real edge, timed from the original launch."""
         pend = self.echo_pend
-        if self.s.echo_role != "near" or pend is None or self.rx.state[self.echo_idx] != pend[0]:
-            return                                      # not the reflection of the edge in flight: ignore (a stale or default-driven change)
+        if self.s.echo_role != "near" or pend is None:
+            return
+        if self.rx.state[self.echo_idx] == pend[0]:
+            if self.echo_cand is None:
+                short = self._echo_revert_t is not None and t - self._echo_revert_t < ECHO_REVERT_SHORT_NS
+                self.echo_cand = self._echo_cand_prev if short and self._echo_cand_prev is not None else t
+                self._echo_hold_from = t
+                self._echo_cand_prev = self._echo_revert_t = None
+        elif self.echo_cand is not None:
+            self._echo_cand_prev, self._echo_revert_t = self.echo_cand, t
+            self.echo_cand = None
+            self.echo_stale += 1
+
+    def _echo_clear(self) -> None:
+        self.echo_cand = self._echo_hold_from = self._echo_cand_prev = self._echo_revert_t = None
+
+    def _echo_confirmed(self, pend: Tuple[int, int]) -> None:
+        t = self.echo_cand
         self.echo_pend = None
+        self._echo_clear()
         if self.echo_dirty:
             self.echo_dirty = False                     # the first edge after a drop-out / timeout / start: pairing is not certain, so no sample
+            self.echo_discarded += 1
+            return
+        if t <= pend[1]:                                # arrived before we launched it: cannot be our edge
             self.echo_discarded += 1
             return
         self._rtt_record(t, (t - pend[1]) / 1e6)
@@ -581,6 +622,7 @@ class Emulator:
     def _to_defaults(self, t: int, t_r: int) -> None:
         if self.echo_pend is not None:                  # ROK dropped with an edge in flight: what comes back after the drop-out is not a round trip
             self.echo_pend = None
+            self._echo_clear()
             self.echo_dirty = True
             self.echo_discarded += 1
         changed = self.rx.to_defaults()
@@ -658,7 +700,7 @@ class Emulator:
                 self.rx_chip_id += 1
                 self.chips_rx.append((self.rx_chip_id, now, None, "missing"))
                 self._to_defaults(now, self.real())
-            if self.s.echo_role == "near" and self.ch.rok and self.t_echo_tx is not None and not self.rtt_alarm:
+            if self.s.echo_role == "near" and self.ch.rok and self.t_echo_tx is not None and not self.rtt_alarm and self.echo_cand is None:   # an edge that is back and only being held is not late
                 ref = max(self.t_echo_tx, self.ch.rok_since or 0)         # time since the last edge was launched (or the link came back)
                 if now - ref > int(self.s.rtt_max_ms * 1e6):
                     self._set_alarm(now, None)
@@ -986,6 +1028,10 @@ def _summary(self: "Emulator", threshold_ms: float = 60.0, percentile=99, max_lo
         else:
             en = (f"{bad} echo sample(s) were discarded because the link dropped out or the echo did not come back; the round trip uses the {echo_n} clean ones.")
         echo_note = en
+    if self.echo_on and not self.codec.trip_frame and self.echo_stale:
+        sn = (f"The link delivered old serial data late or twice {self.echo_stale} time(s) (normal for UDP over cellular): those brief echo flips were "
+              "ignored, so they do not show up as impossibly fast round trips.")
+        echo_note = f"{echo_note} {sn}" if echo_note else sn
     tstats = stats_ms(tt)
     tstats.update({"basis": basis, "sent": sent, "lost": lost, "loss_pct": round(100.0 * lost / sent, 4) if sent else 0.0, "threshold_ms": threshold_ms,
                    "late": sum(1 for x in tt if x > threshold_ms), "flips": flips_n, "ambiguous": ambiguous})
@@ -1002,7 +1048,7 @@ def _summary(self: "Emulator", threshold_ms: float = 60.0, percentile=99, max_lo
         "unavail_pct": st["unavail_pct"], "availability_pct": st["availability_pct"], "down_pct": st["unavail_pct"], "longest_outage_ms": st["longest_outage_ms"],
         "outage_count": st["outage_count"], "rbad_total_s": st["rbad_total_s"], "first_rok_s": st["first_rok_s"], "outages": outs,
         "histogram": self.histogram(), "rtt": self.rtt_stats(True), "transfer": tstats, "echo": {"bit": self.s.echo_bit if self.echo_on else None, "role": self.s.echo_role, "cycles": self.echo_changes,
-                                                                    "discarded": self.echo_discarded, "timeouts": self.echo_timeouts, "unreliable": echo_unreliable},
+                                                                    "discarded": self.echo_discarded, "timeouts": self.echo_timeouts, "stale": self.echo_stale, "unreliable": echo_unreliable},
         "impair": {**self.imp.cfg, **self.imp.stats()}, "events_total": self.events_total, "one_way_note": note, "echo_note": echo_note,
         "overrun_available": bool(self.link.overrun_available) if getattr(self.link, "char_mode", "plain") == "parmrk" else None,
         "driver_errors": dict(self.errors_seen), "tx_late_max_ms": round(self.tx_late_max_ns / 1e6, 3), "host_stalls": self.host_stalls, "tx_skipped": self.tx_skipped,
