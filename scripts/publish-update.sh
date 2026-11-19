@@ -70,3 +70,4 @@ git add $INIT && git -c user.name="$(git log -1 --format=%an)" -c user.email="$(
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>" -- $INIT
 echo "==> published $NEW ($(( $(stat -c %s "$BUNDLE") / 1024 )) KB). Field Pis: Settings -> Software update -> Check for updates."
+[ -x "$(dirname "$0")/dev/sync-public.sh" ] && { echo "==> syncing the public repo (non-blocking)"; timeout 600 "$(dirname "$0")/dev/sync-public.sh" || echo "(public sync failed; the release itself is fine)"; } || true

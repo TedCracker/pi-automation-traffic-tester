@@ -1,0 +1,188 @@
+1
+00:00:03,500 --> 00:00:07,440
+This is the Pi Traffic Tester, running on a Raspberry Pi.
+
+2
+00:00:07,690 --> 00:00:11,370
+The lamps along the top show this Pi's health at a glance.
+
+3
+00:00:14,040 --> 00:00:18,440
+The other Pi answers, the clocks agree, and the network port is up.
+
+4
+00:00:21,870 --> 00:00:26,700
+The Links table lists every port, and whether the far Pi answers on it.
+
+5
+00:00:27,760 --> 00:00:31,270
+Below it is the test that is loaded, ready to start.
+
+6
+00:00:37,780 --> 00:00:40,570
+And the latest results are always on the right.
+
+7
+00:00:42,530 --> 00:00:44,990
+Open Tests to choose what to run.
+
+8
+00:00:45,270 --> 00:00:51,250
+Tests are grouped: trip signals, whole-network test sets, and basic link checks.
+
+9
+00:00:54,550 --> 00:01:00,030
+Tap a card's information link to read, in plain words, what the test does.
+
+10
+00:01:00,280 --> 00:01:04,700
+It explains how it works, what you need, and what a pass means.
+
+11
+00:01:07,620 --> 00:01:10,680
+To build your own test, press New test.
+
+12
+00:01:11,620 --> 00:01:15,060
+Answer four short rows, from top to bottom.
+
+13
+00:01:15,840 --> 00:01:20,380
+Port: where the traffic leaves from. Here, the Pi's Wi-Fi.
+
+14
+00:01:20,630 --> 00:01:23,730
+Protocol: plain UDP messages.
+
+15
+00:01:23,980 --> 00:01:30,760
+From and To: pi1 sends, pi2 answers, and each trip is timed there and back.
+
+16
+00:01:31,010 --> 00:01:37,790
+The app warns that this path shares Wi-Fi, so the results include Wi-Fi delay. That is fine for a demo.
+
+17
+00:01:38,040 --> 00:01:43,020
+Traffic: a message every 5 milliseconds, for 30 seconds.
+
+18
+00:01:46,310 --> 00:01:51,740
+Pass means 99 percent of round trips arrive within 60 milliseconds.
+
+19
+00:01:51,990 --> 00:01:56,170
+Give it a name and press Save, and it joins your own tests.
+
+20
+00:02:02,340 --> 00:02:04,410
+Press Run test.
+
+21
+00:02:06,520 --> 00:02:09,550
+The Pi checks the path, then starts sending.
+
+22
+00:02:09,800 --> 00:02:19,940
+The live numbers update every second: delay now, the slowest one percent, the slowest ever, messages lost, and messages over the limit.
+
+23
+00:02:26,300 --> 00:02:31,200
+The arrows show each request going out, and each reply coming back.
+
+24
+00:02:34,730 --> 00:02:39,060
+The chart plots the delay of every message against your limit line.
+
+25
+00:02:39,760 --> 00:02:42,840
+When the time is up, the verdict appears.
+
+26
+00:02:44,770 --> 00:02:48,760
+Open Results to see every run, newest first.
+
+27
+00:02:49,020 --> 00:02:54,020
+PASS means the link met every requirement. FAIL tells you which one it missed.
+
+28
+00:02:54,280 --> 00:03:03,170
+The red note is the Pi checking itself. It paused briefly while sending, and says so, so you can tell a Pi limit from a link problem.
+
+29
+00:03:03,420 --> 00:03:12,500
+Below are the numbers: the typical delay, the 95th and 99th percentiles, the slowest message, jitter and loss.
+
+30
+00:03:12,910 --> 00:03:16,490
+The chart shows how the delay was spread across the run.
+
+31
+00:03:18,870 --> 00:03:25,290
+The PDF report packs the verdict and the numbers, with a sign-off sheet, ready to hand over.
+
+32
+00:03:27,040 --> 00:03:31,100
+Saved tests live under My tests, at the bottom of the list.
+
+33
+00:03:33,940 --> 00:03:37,760
+To run one again, press Run, then Run test.
+
+34
+00:03:41,830 --> 00:03:46,180
+Every run is stored, so you can repeat it after you change the link.
+
+35
+00:03:47,940 --> 00:03:52,630
+Did anything change? Back in Results, choose Select to compare.
+
+36
+00:03:52,880 --> 00:03:56,490
+Tick two runs of the same test, and press Compare.
+
+37
+00:04:02,570 --> 00:04:08,240
+Each number is shown side by side, with the change, and whether it is better or worse.
+
+38
+00:04:08,490 --> 00:04:14,040
+Set one run as the baseline, and every later run of that test is shown against it.
+
+39
+00:04:15,800 --> 00:04:20,540
+The Sniffer captures packets from the wire, like a protocol analyser.
+
+40
+00:04:20,790 --> 00:04:24,880
+Pick where it listens. Here, a mirror port on the Ethernet.
+
+41
+00:04:25,130 --> 00:04:30,830
+Press Start, and packets appear as they arrive. The other Pi is sending test traffic.
+
+42
+00:04:39,080 --> 00:04:44,100
+Press Stop to keep the capture. Save it as pcapng, or reopen it here later.
+
+43
+00:04:48,730 --> 00:04:53,300
+Tap a packet to decode it, layer by layer, with its bytes.
+
+44
+00:04:54,720 --> 00:05:01,060
+Type a display filter, such as port 20500, to show only what matters.
+
+45
+00:05:02,810 --> 00:05:05,000
+Every result can be exported.
+
+46
+00:05:05,250 --> 00:05:12,460
+Use the PDF report for a customer, the ZIP for the raw data, and CSV or JSON for your own tools.
+
+47
+00:05:14,610 --> 00:05:22,390
+That is the whole loop: set up a test, run it, read the verdict, compare, and capture. Thanks for watching.
+

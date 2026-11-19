@@ -2,6 +2,13 @@
 
 **Turn two or more Raspberry Pi 5s into a network and serial-link tester**: measure round-trip delay, jitter and message loss over serial, Ethernet or radio links (for example a 5G/FirstNet trip-signal path with a 60 ms target), generate traffic, and capture/sniff it, all from a web page on your phone or laptop.
 
+## Demo video
+
+[![Watch the demo: how to run a test (about 5 minutes, with voice-over and captions)](docs/demo/poster.png)](docs/demo/traffic-tester-demo.mp4)
+
+**[Watch the demo (5 min, voice-over + captions)](docs/demo/traffic-tester-demo.mp4)**: set up a test, run it, read the verdict, compare two runs and capture packets, on two real Pis. Captions: [traffic-tester-demo.srt](docs/demo/traffic-tester-demo.srt). Network addresses and other identifiers in the recording are blurred.
+
+
 ![The app's Tests page](docs/screenshots/home-tests.png)
 
 ## What you need
