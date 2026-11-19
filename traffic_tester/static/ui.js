@@ -109,6 +109,7 @@ export const lamps = (bits, label, prefix = 'TMB') => `<span class="lamps" role=
 export const ms = v => v == null ? '–' : (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2)) + ' ms';
 export const num = v => v == null ? '–' : Number(v).toLocaleString();
 export const pct = v => v == null ? '–' : (v < 10 ? v.toFixed(2) : v.toFixed(1)) + ' %';
+export const clock = s => { s = Math.max(0, Math.round(s || 0)); const p = n => String(n).padStart(2, '0'); return `${p(Math.floor(s / 3600))}:${p(Math.floor(s % 3600 / 60))}:${p(s % 60)}`; };      // fixed-width HH:MM:SS for the state bar
 export function dur(s) {
   s = Math.max(0, Math.round(s));
   const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
@@ -160,4 +161,13 @@ export function describeProfile(p, port) {
 export function download(name, text, type = 'application/json') {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+// One state bar for every engine (replaces the RUNNING / CAPTURING banner + progress card): lamp + state word + fixed-width timer + thin progress line.
+// kind: 'run' (running / capturing). The timer and the line are filled by setStateBar().
+export const stateBar = (word, note = '') => `<div class="banner run" data-testid="state-bar"><div class="big">● ${word}</div><div class="stime" data-state-time>00:00:00</div><div class="snote">${note}</div><div class="sline"><i data-state-line style="width:0%"></i></div></div>`;
+export function setStateBar(elapsed, total) {
+  const t = $('[data-state-time]'), l = $('[data-state-line]');
+  if (t) t.textContent = clock(elapsed);
+  if (l) l.style.width = (total ? Math.min(100, elapsed / total * 100) : 0) + '%';
 }

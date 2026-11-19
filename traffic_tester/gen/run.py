@@ -62,6 +62,9 @@ class RemoteNode:
     def live(self, since: int) -> dict:
         return self._call("GET", f"/api/gen/node/live?since={since}")
 
+    def set_stream(self, sid: int, on: bool) -> None:
+        self._call("POST", "/api/gen/node/stream", {"id": sid, "on": on}, timeout=10)
+
     def stop_senders(self) -> None:
         self._call("POST", "/api/gen/node/senders/stop", {}, timeout=10)
 
@@ -109,6 +112,7 @@ class GeneratorRun:
     def __init__(self, profile: dict, node: G.Node, emit: Callable[[dict], None] = lambda e: None,
                  on_interval: Callable[[dict], None] = lambda r: None, remote=None, services: Optional[OR.Services] = None):
         self.p, self.cfg = profile, profile["gen"]
+        self.cfg["streams"] = [x for x in self.cfg["streams"] if x.get("enabled", True)]      # a stream that is switched off is kept in the list, not sent
         self.node, self.emit, self.on_interval = node, emit, on_interval
         self.remote = remote
         self.services = services or OR.Services()
@@ -120,6 +124,13 @@ class GeneratorRun:
         self.streams: List[dict] = []
         self.sum_cfg: List[dict] = self.cfg["streams"]     # the settings each entry of self.streams was made from (the same list, unless the test runs in steps)
         self._mon_last: dict = {}
+        self.until_stopped = False                         # no stream has an end: the test runs until Stop
+        self.stream_on: Dict[int, bool] = {}               # streams switched off during the run
+        self._clear_req = False                            # Clear pressed: the next reading becomes the new zero for the screen
+        self._base: Dict[int, dict] = {}                   # per stream: counters at the last Clear
+        self._cleared_s: Optional[float] = None
+        self._st_last: Dict[int, dict] = {}                # per stream: newest delay and jitter seen
+        self._st_prev: Dict[int, dict] = {}                # per stream: cumulative bytes at the last reading (for rates)
         # Throughput in steps (docs/SPEC.md 13.9)
         self.steps_cfg: dict = self.cfg.get("steps") or {}
         self.stepping = bool(self.steps_cfg.get("enabled"))
@@ -133,6 +144,30 @@ class GeneratorRun:
 
     def stop(self) -> None:
         self.stop_evt.set()
+
+    # ------------------------------------------------------------ while it runs
+    def set_stream(self, i: int, on: bool) -> None:
+        """Switch stream number i off or on during the run (the sender stays ready; nothing is sent while it is off)."""
+        if self.status != "running":
+            raise ValueError("The test is not running.")
+        if self.stepping:
+            raise ValueError("Streams cannot be switched during Throughput in steps.")
+        r = next((x for x in self.streams if x["id"] == i), None)
+        if r is None:
+            raise ValueError(f"There is no stream number {i + 1}.")
+        n = self.nodes[r["_src"]]
+        try:
+            if n.is_self:
+                self.node.set_stream_on(i, on)
+            else:
+                n.handle.set_stream(i, on)
+        except RemoteError as e:
+            raise ValueError(str(e))
+        self.stream_on[i] = on
+
+    def clear(self) -> None:
+        """Zero the numbers on the screen at the next reading; the test goes on and the stored result still covers all of it."""
+        self._clear_req = True
 
     # ------------------------------------------------------------ who takes part
     def _endpoint(self, s: dict, which: str) -> dict:
@@ -426,15 +461,16 @@ class GeneratorRun:
         clocks: dict = {}
         started: List[_N] = []
         try:
-            if self.remote is None and not (cfg["streams"] and any(1 for _ in cfg["streams"])):
-                raise G.GenError("Add at least one stream.")
+            if not cfg["streams"]:
+                raise G.GenError("Add at least one stream, and switch it on.")
             self._plan()
             clocks = self._clock_state()
             # a packet-count stream has no duration: it takes packets / rate
             if self.stepping:
                 self.total_s = self._steps_total_s()
             else:
-                self.total_s = max([(s["start_offset_s"] + (s["duration_s"] or s["packets"] / G.stream_pps(s)[1])) for s in self.streams] or [0])
+                self.until_stopped = any(not s["duration_s"] and not s["packets"] for s in self.streams)
+                self.total_s = 0.0 if self.until_stopped else max([(s["start_offset_s"] + (s["duration_s"] or s["packets"] / G.stream_pps(s)[1])) for s in self.streams] or [0])
             order = sorted(self.nodes.values(), key=lambda n: n.is_self)       # other Pis first, then this one: receivers first, then senders
             # receivers first (every Pi), then senders: nothing is sent before everything is listening
             for n in order:
@@ -503,7 +539,7 @@ class GeneratorRun:
                     misses[n.key] = 0
                 except RemoteError:
                     misses[n.key] += 1                         # a short outage of the link is part of the test; a Pi that stays away is not
-                    if misses[n.key] >= self.LOST_POLLS and now > self.total_s + self.LOST_GRACE_S:
+                    if misses[n.key] >= (60 if self.until_stopped else self.LOST_POLLS) and (self.until_stopped or now > self.total_s + self.LOST_GRACE_S):
                         raise G.GenError(f"Lost contact with {n.label} during the test.")
                     lives[n.key] = {"rows": [], "n_rows": n.since, "done": False, "tx": {}, "rx": {}, "errors": []}
                 n.since = lives[n.key]["n_rows"]
@@ -535,8 +571,47 @@ class GeneratorRun:
             ev["jitter_ms"] = round(max((r["jitter_us"] or 0) for r in rows) / 1000.0, 3)
         if self.stepping:
             ev.update(self._step_ev())
+        else:
+            ev.update(self._streams_ev(lives, now, dt, valid_lat))
+        if self.until_stopped:
+            ev["until_stopped"] = True
         self._mon_last = {"t": now, "tx_b": tx_b, "rx_b": rx_b, "tx_n": tx_n, "rx_n": rx_n}
         self.emit(ev)
+
+    def _streams_ev(self, lives: Dict[str, dict], now: float, dt: float, valid_lat: bool) -> dict:
+        """The per-stream numbers of a "gstate" event (since the last Clear), plus the sum row."""
+        cur: Dict[int, dict] = {}
+        for r in self.streams:
+            sid = r["id"]
+            tx = (lives.get(r["_src"]) or {}).get("tx", {}).get(str(sid)) or {}
+            rx = (lives.get(r["_dst"]) or {}).get("rx", {}).get(str(sid)) or {}
+            cur[sid] = {"tx_pkts": tx.get("pkts", 0), "tx_bytes": tx.get("bytes", 0), "rx_pkts": rx.get("unique", 0), "rx_bytes": rx.get("bytes", 0), "lost": rx.get("lost", 0)}
+        for lv in lives.values():                              # newest delay and jitter per stream (a Pi that sent no new second keeps the last one)
+            for row in lv.get("rows", [])[-8 * max(1, len(self.streams)):]:
+                if row["dir"] == "rx" and row.get("lat_avg_us") is not None and row["stream"] in cur:
+                    self._st_last[row["stream"]] = {"lat_ms": round(row["lat_avg_us"] / 1000.0, 3) if valid_lat else None,
+                                                    "jit_ms": round((row.get("jitter_us") or 0) / 1000.0, 3)}
+        if not self._base:
+            self._base = {sid: {k: 0 for k in c} for sid, c in cur.items()}
+        if self._clear_req:
+            self._cleared_s = round(now, 1)
+            self._st_last = {}
+            self._base = {sid: dict(c) for sid, c in cur.items()}
+            self._clear_req = False
+        out, tot = [], {"tx_pkts": 0, "rx_pkts": 0, "lost": 0, "tx_bytes": 0, "rx_bytes": 0}
+        for sid, c in cur.items():
+            b = self._base.get(sid, {})
+            d = {k: max(0, c[k] - b.get(k, 0)) for k in c}
+            prev = self._st_prev.get(sid, {"tx_bytes": 0, "rx_bytes": 0})
+            on = self.stream_on.get(sid, True)
+            sl = self._st_last.get(sid, {}) if on else {}
+            out.append({"i": sid, "on": on, **d, "tx_mbps": round(max(0, c["tx_bytes"] - prev["tx_bytes"]) * 8 / dt / 1e6, 3),
+                        "rx_mbps": round(max(0, c["rx_bytes"] - prev["rx_bytes"]) * 8 / dt / 1e6, 3), "lat_ms": sl.get("lat_ms"), "jit_ms": sl.get("jit_ms")})
+            self._st_prev[sid] = {"tx_bytes": c["tx_bytes"], "rx_bytes": c["rx_bytes"]}
+            for k in tot:
+                tot[k] += d[k]
+        return {"streams_now": out, "sum": {**tot, "tx_mbps": round(sum(x["tx_mbps"] for x in out), 3), "rx_mbps": round(sum(x["rx_mbps"] for x in out), 3),
+                "loss_pct": round(100.0 * tot["lost"] / tot["tx_pkts"], 3) if tot["tx_pkts"] else 0.0}, "cleared_s": self._cleared_s}
 
     # ------------------------------------------------------------ results
     def _summarize(self, results: Dict[str, dict], clocks: dict) -> dict:
@@ -642,7 +717,7 @@ class GeneratorRun:
         other = next((n for n in self.nodes.values() if not n.is_self), None)
         summary = {"kind": "generator", "streams": streams, "pairs": pair_list, "totals": totals, "clocks": clocks, "nodes": [n.label for n in self.nodes.values()],
                    "peer": {"hardware": (other.status.get("hardware") if other else None), "clock": (other.status.get("clock") if other else None)},
-                   "duration_s": round(min(self.total_s, self.sent_s) if (self.stop_evt.is_set() and self.sent_s is not None) else self.total_s, 1),   # a stopped test shows how long it really ran, not the planned length
+                   "duration_s": round((self.sent_s if self.until_stopped else min(self.total_s, self.sent_s)) if (self.stop_evt.is_set() and self.sent_s is not None) else self.total_s, 1),   # a stopped test shows how long it really ran, not the planned length
                    "stopped_early": self.stop_evt.is_set()}
         for res in results.values():
             for e in res["errors"]:

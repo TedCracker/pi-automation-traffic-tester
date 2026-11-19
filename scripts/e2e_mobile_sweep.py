@@ -3,7 +3,7 @@
   (a) no sideways page scroll (documentElement and body scrollWidth <= innerWidth)
   (b) every visible interactive element is >= 44 x 44 CSS px on phones/tablets (button, a[href], input, select, textarea, summary, [role=tab|button], label.chk, [tabindex], clickable table rows)
   (c) input / select / textarea computed font-size >= 16 px on phones/tablets (iOS does not zoom)
-  (d) the fixed bottom tab bar is visible, has the 6 tabs and does not cover the sticky action bar or the end of the page
+  (d) the fixed bottom tab bar is visible, has the 5 tabs (Setup is the gear in the strip), sits below the transport bar and does not cover the sticky action bar or the end of the page
   (e) dialogs (confirm, prompt, "More" menu, toast) and the generator / sniffer / profile editors fit the screen with their buttons reachable
 plus: manifest + icons + meta, desktop look unchanged at 1280 px, charts re-fit after a rotation.
 Run via scripts/e2e-mobile-sweep.sh (system python3 with playwright). Prints 'CHECK name | pass/FAIL | evidence' and 'N/M checks passed'.
@@ -16,7 +16,7 @@ SHOTS = os.path.join(ROOT, "docs", "screenshots")
 TMP = tempfile.mkdtemp(prefix="tt-mobile-"); procs, results = [], []
 A, B, UDP = 18340, 18341, 20593
 PEER = [None]      # the id of pi2 in pi1's list of Pis
-TABS = ("setup", "run", "results", "generator", "sniffer", "settings")
+TABS = ("home", "setup", "run", "results", "generator", "sniffer", "settings")
 TOL = 0.5          # px of rounding slack on the 44 px rule (sub-pixel layout); 43.5 and up counts as 44
 EXCLUDED = []      # (selector, reason): only for elements that are not tap targets by design. Kept empty on purpose; anything listed is printed.
 
@@ -110,7 +110,7 @@ BARS_JS = r"""() => {
     tabsIn: tabs.filter(t => { const q = t.getBoundingClientRect(); return q.left >= -0.5 && q.right <= vw + 0.5 && q.bottom <= vh + 0.5; }).length,
     sel: tabs.filter(t => t.getAttribute('aria-selected') === 'true').length, tabCount: [...new Set(tabs.map(t => Math.round(t.getBoundingClientRect().top)))].length,
     icons: tabs.filter(t => vis(t.querySelector('.ti'))).length, labels: tabs.map(t => t.textContent.trim()), bars: [] };
-  for (const q of ['.actionbar', '#runActs']) {
+  for (const q of ['.actionbar', '#runActs', '#transport']) {
     const el = document.querySelector(q); if (!vis(el)) continue;
     const b = el.getBoundingClientRect();
     const btn = el.querySelector('button:not([disabled]), a.btn'); let reach = null;
@@ -123,7 +123,8 @@ BARS_JS = r"""() => {
 END_JS = r"""() => {
   scrollTo(0, document.documentElement.scrollHeight);
   const nav = document.querySelector('#tabs').getBoundingClientRect(); let lim = nav.top;
-  const ra = document.querySelector('#runActs'); if (ra && ra.checkVisibility()) lim = Math.min(lim, ra.getBoundingClientRect().top);
+  const ra = document.querySelector('#runActs'); if (ra && ra.checkVisibility() && getComputedStyle(ra).position === 'fixed') lim = Math.min(lim, ra.getBoundingClientRect().top);
+  const tb = document.querySelector('#transport'); if (tb && tb.checkVisibility()) lim = Math.min(lim, tb.getBoundingClientRect().top);
   const fe = document.querySelector('#about'), foot = fe.getBoundingClientRect(); const fpad = parseFloat(getComputedStyle(fe).paddingBottom) || 0;       // its bottom padding is empty space, not text
   const last = [...document.querySelectorAll('#main button, #main a, #main input, #main select, #main summary')].filter(e => e.checkVisibility() && e.getBoundingClientRect().height && !e.closest('.scroll,.runlist,#runActs')).pop();
   const lb = last ? last.getBoundingClientRect().bottom : 0;
@@ -183,7 +184,7 @@ try:
             tag = f"[{cname}] "; phone = touch; compact = W <= 820 or (H <= 480 and W <= 1000)       # compact = the layout with the bottom tab bar (same rule as style.css)
             ctx = br.new_context(viewport={"width": W, "height": H}, device_scale_factor=1, is_mobile=touch, has_touch=touch, color_scheme=theme, accept_downloads=True)
             pg = ctx.new_page(); errs = []
-            pg.on("pageerror", lambda e, errs=errs: errs.append(str(e)))
+            pg.on("pageerror", lambda e, errs=errs: errs.append(str(e) + " @ " + " | ".join(str(getattr(e, "stack", "") or "").split("\n")[1:3])))
             pg.on("console", lambda m, errs=errs: errs.append(m.text) if m.type == "error" and "Failed to load resource" not in m.text else None)
             rid = trip(f"live {cname}", 9, 60, 50)                      # a test is running while the Run tab is audited
             pg.goto(f"http://127.0.0.1:{A}/"); pg.wait_for_selector("#tabs [aria-selected=true]"); time.sleep(0.8)
@@ -205,7 +206,12 @@ try:
                 return a
 
             def go(tab):
-                pg.click(f"[data-testid=tab-{tab}]"); pg.wait_for_selector(f"[data-tab={tab}][aria-selected=true]"); time.sleep(0.9)
+                # old screen names: setup = the test list, run = the live screen (both on Tests now), settings = Setup (gear)
+                t = {"setup": "tests", "run": "tests", "settings": "config"}.get(tab, tab)
+                pg.locator(f"[data-tab={t}]:visible").first.click(); pg.wait_for_selector(f"[data-tab={t}][aria-selected=true]"); time.sleep(0.9)
+                if tab == "setup" and pg.locator("#runBanner").count():           # Tests shows the live screen while something runs: wait for it to end, then open the list
+                    pg.wait_for_function("document.querySelector('[data-testid=tb-word]').textContent !== 'RUNNING'", timeout=90000)
+                    pg.locator(f"[data-tab=tests]:visible").first.click(); time.sleep(0.9)
 
             def bar_state(label):
                 if not compact: return
@@ -214,7 +220,7 @@ try:
             # ---------------- every tab (+ its richer states)
             for tab in ("run",) + tuple(t for t in TABS if t != "run"):
                 go(tab)
-                if tab == "run": pg.wait_for_selector("#stopBtn, #seeRes", timeout=8000); pg.wait_for_selector("#chart canvas"); time.sleep(0.4)
+                if tab == "run": pg.wait_for_selector("#runBanner", timeout=8000); pg.wait_for_selector("#chart canvas"); time.sleep(0.4)
                 audit_state(tab); bar_state(tab)
                 if shots: shot(pg, tab, cname, theme)
                 if tab == "setup":
@@ -246,6 +252,10 @@ try:
                     if shots: shot(pg, "setup-custom-greyed", cname, theme)
                     pg.click("[data-testid=nt-cancel]"); time.sleep(0.4)
                     if pg.locator("#modal:not([hidden]) .box").count(): audit_state("new test: discard-changes dialog", root="#modal .box"); pg.click("#mYes"); time.sleep(0.4)
+                if tab == "settings":
+                    for sub in ("pis", "network", "time", "update", "password", "help", "demo"):
+                        pg.evaluate(f"location.hash = '#config/{sub}'"); time.sleep(1.2); audit_state(f"setup/{sub}")
+                    pg.evaluate("location.hash = '#config'"); time.sleep(0.5)
                 if tab == "results":
                     rows = pg.locator(".runlist tr[data-run]").count()
                     for i in range(min(rows, 3)):
@@ -253,7 +263,7 @@ try:
                         audit_state(f"results/detail{i}"); bar_state(f"results/detail{i}")
                         if shots and i == 0: shot(pg, "results-detail", cname, theme)
                 if tab == "generator":
-                    pg.locator(".pcard").first.click(); time.sleep(0.8)
+                    pg.locator("[data-testid=gen-row-1]").first.click(); time.sleep(0.8)
                     for d in pg.locator("#main details").all(): d.evaluate("e => e.open = true")
                     time.sleep(0.4); audit_state("generator/editor"); bar_state("generator/editor")
                     if shots: shot(pg, "generator-editor", cname, theme)
@@ -264,8 +274,9 @@ try:
                     pg.locator(".pcard:has-text('Inline Ethernet tap')").first.click(); time.sleep(0.6)
                     audit_state("sniffer/editor(inline tap)")
                     if shots: shot(pg, "sniffer-editor", cname, theme)
-            go("run"); pg.wait_for_selector("#seeRes, #stopBtn", timeout=20000)
-            try: pg.wait_for_selector("#seeRes", timeout=20000)
+            rid = trip(f"finish {cname}", 5, 60, 50); time.sleep(0.6)               # the finished screen stays on Tests until you leave it: open Tests while a short test runs, wait for its verdict there
+            go("run"); pg.wait_for_selector("#runBanner", timeout=20000)
+            try: pg.wait_for_selector("#seeRes", timeout=30000)
             except Exception: pass
             audit_state("run/finished"); bar_state("run/finished")
             if shots: shot(pg, "run-finished", cname, theme)
@@ -276,7 +287,7 @@ try:
             grid = http(A, "POST", "/api/runs", {"profile": gp})["run_id"]; time.sleep(1.0)
             pg.reload(); pg.wait_for_selector("#tabs [aria-selected=true]"); go("generator")
             try:
-                pg.wait_for_selector("#gC1 canvas, [data-act=stop]", timeout=8000); time.sleep(2.5)
+                pg.wait_for_selector("#gC1 canvas", timeout=8000); time.sleep(2.5)
                 audit_state("generator/live"); bar_state("generator/live")
                 if shots: shot(pg, "generator-live", cname, theme)
                 wait_run(grid)                                    # (its finished result is the generator row in Results, swept above)
@@ -285,20 +296,22 @@ try:
             # ---------------- a sniffer capture while it runs: no capture tool on this host, so the browser is fed the same events the server would send (live numbers, packet list)
             pg.reload(); pg.wait_for_selector("#tabs [aria-selected=true]"); go("settings")
             pg.evaluate("""async () => { const { S } = await import('./state.js'); S.live.running = true; S.live.runId = 9999; S.live.done = null; S.live.profile = { kind: 'sniffer', name: 'synthetic', sniff: { mode: 'eth_span' } };
-                S.sniff.xs = []; S.sniff.pps = []; S.sniff.mbps = []; S.sniff.rows = []; }""")
-            go("sniffer"); pg.wait_for_selector("#sC1 canvas")
-            pg.evaluate("""async () => { const { S, emitLive } = await import('./state.js'); const g = S.sniff;
-                for (let i = 0; i < 40; i++) { g.xs.push(i); g.pps.push(200 + 80 * Math.sin(i / 4)); g.mbps.push(1.5); }
-                for (let n = 1; n <= 60; n++) g.rows.push({ n, t_ns: 1e9 + n * 2e7, src: '192.168.100.' + (n % 9 + 1) + ':20000', dst: '224.0.1.129', proto: n % 3 ? 'UDP' : 'GOOSE', len: 60 + n, info: 'stNum=1 sqNum=' + n + ' allData [Mod=on Beh=on Health=ok]', errors: 0 });
-                g.last = { mode: 'eth_span', elapsed_s: 40, total_s: 60, packets: 18452, bytes: 2.4e7, pps: 312, mbps: 1.52, free_mb: 5120, viewer: { sampling: true, decoded: 600, seen: 18452 } };
-                emitLive({ ev: 'sstate' }); }""")
-            pg.route("**/api/sniff/packet/*", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps({"proto": "GOOSE", "hex": "01 0c cd 01 00 01 00 1a 4b 11 22 33 88 b8 00 01 00 5e 00 00 00 00 61 54 80 0a 67 63 62 31 2f 4c 4c 30 24 47 4f".replace(" ", ""),
-                "layers": [{"name": "Ethernet II", "fields": {"Destination": "01:0c:cd:01:00:01", "Source": "00:1a:4b:11:22:33", "Type": "GOOSE (0x88b8)"}}, {"name": "GOOSE", "fields": {"gocbRef": "IED1/LLN0$GO$gcb1", "datSet": "IED1/LLN0$DataSet1", "stNum": "1", "allData": ["Mod = on", "Beh = on", "Health = ok"]}}]})))
+                S.sniff.xs = []; S.sniff.pps = []; S.sniff.mbps = []; S.sniff.rows = []; S.sniff.last = { mode: 'eth_span', elapsed_s: 40, total_s: 60, packets: 18452, bytes: 2.4e7, pps: 312, mbps: 1.52, free_mb: 5120, file_bytes: 3.2e6 }; }""")
+            rows = [{"n": n, "t_ns": 1_700_000_000_000_000_000 + n * 20_000_000, "src": f"192.168.100.{n % 9 + 1}:20000", "dst": "224.0.1.129", "sip": "192.168.100.%d" % (n % 9 + 1), "proto": "UDP" if n % 3 else "GOOSE", "len": 60 + n,
+                     "info": f"stNum=1 sqNum={n} allData [Mod=on Beh=on Health=ok]", "errors": 1 if n == 7 else 0, "retrans": n == 9, "resp_ms": 144.1 if n % 5 == 0 else None, "delta_ms": 144.1 if n % 5 == 0 else 20.0, "dir": "→", "linktype": 1} for n in range(1, 61)]
+            view = {"rows": rows, "total": 18452, "shown": 60, "errors": 1, "sampling": True, "seen": 18452, "decoded": 600, "mode": "eth_span"}
+            pg.route("**/api/sniff/view*", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(view if "after=0" in r.request.url else {**view, "rows": []})))
+            pg.route("**/api/sniff/flows*", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps({"flows": [{"key": "k", "label": ".1 → 224.0.1.129:20000", "a": "192.168.100.1:20000", "b": "224.0.1.129:20000", "proto": "GOOSE", "packets": 600, "bytes": 51000, "errors": 1, "retrans": 0, "responses": 0, "resp_avg_ms": None}]})))
+            pg.route("**/api/runs/9999", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps({"id": 9999, "status": "running", "profile": {"kind": "sniffer", "name": "synthetic", "sniff": {"mode": "eth_span", "eth": {"interface": "eth0"}, "filter": {"bpf": "ether proto 0x88b8"}}}, "summary": None})))
+            go("sniffer"); pg.wait_for_selector("#pkList .pr"); time.sleep(0.5)
+            pg.route("**/api/sniff/packet/*", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps({"proto": "GOOSE", "n": 3, "len": 66, "hex": "01 0c cd 01 00 01 00 1a 4b 11 22 33 88 b8 00 01 00 5e 00 00 00 00 61 54 80 0a 67 63 62 31 2f 4c 4c 30 24 47 4f".replace(" ", ""),
+                "layers": [{"name": "Frame", "fields": {"Number": 3, "Length": "66 bytes"}, "range": [0, 66]}, {"name": "Ethernet", "fields": {"Destination": "01:0c:cd:01:00:01", "Source": "00:1a:4b:11:22:33", "Type": "GOOSE (0x88b8)"}, "range": [0, 14]},
+                           {"name": "GOOSE", "fields": {"gocbRef": "IED1/LLN0$GO$gcb1", "datSet": "IED1/LLN0$DataSet1", "stNum": "1", "allData": ["Mod = on", "Beh = on", "Health = ok"]}, "range": [14, 33]}]})))
             audit_state("sniffer/live capture"); bar_state("sniffer/live capture")
-            pg.locator("#sRows tr.click").first.click(); pg.wait_for_selector("#sDetail h2"); time.sleep(0.8)
+            pg.locator("#pkList .pr").nth(2).click(); pg.wait_for_selector("#decBody .lay"); time.sleep(0.8)
             audit_state("sniffer/live capture + packet detail"); bar_state("sniffer/live capture + packet detail")
             if shots: shot(pg, "sniffer-live", cname, theme)
-            pg.unroute("**/api/sniff/packet/*")
+            for u in ("**/api/sniff/packet/*", "**/api/sniff/view*", "**/api/sniff/flows*", "**/api/runs/9999"): pg.unroute(u)
             # ---------------- pi2: the same app, the same six screens (no Responder page), and its Setup step 2 with pi1 in the list
             pg.goto(f"http://127.0.0.1:{B}/"); pg.wait_for_selector("#tabs [aria-selected=true]"); time.sleep(0.8)
             for tab in TABS:
@@ -312,8 +325,8 @@ try:
             # ---------------- top bar with a password set: the Pi's name, "Signed in" and "Sign out" (then sign out, sign in again, remove the password)
             http(A, "POST", "/api/auth/set", {"password": "sweep-pw"}); pg.reload(); pg.wait_for_selector("#pw"); pg.fill("#pw", "sweep-pw"); pg.click("#pwGo"); pg.wait_for_selector("[data-testid=top-sign-out]"); time.sleep(0.6)
             audit_state("top bar with a password set (Signed in / Sign out)")
-            tb = pg.evaluate("() => { const r = e => { const b = document.querySelector(e).getBoundingClientRect(); return [Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)]; }; return { name: r('[data-testid=top-pi-name]'), si: r('[data-testid=top-signed-in]'), so: r('[data-testid=top-sign-out]'), vw: innerWidth, txt: document.querySelector('header.top').innerText }; }")
-            check(f"{tag}top bar with a password: shows the Pi's name, 'Signed in' and a 'Sign out' link, all inside the screen", "pi1" in tb["txt"] and "Signed in" in tb["txt"] and "Sign out" in tb["txt"] and all(b[0] >= 0 and b[0] + b[2] <= tb["vw"] + 1 for b in (tb["name"], tb["si"], tb["so"])), tb)
+            tb = pg.evaluate("() => { const r = e => { const b = document.querySelector(e).getBoundingClientRect(); return [Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)]; }; return { name: r('[data-testid=top-pi-name]'), si: r('[data-testid=top-signed-in]'), so: r('[data-testid=top-sign-out]'), vw: innerWidth, txt: document.querySelector('header.top').innerText + ' ' + document.querySelector('footer#about').innerText }; }")
+            check(f"{tag}password set: the strip shows the Pi's name; the footer shows 'Signed in' and a 'Sign out' link; all inside the screen width", "pi1" in tb["txt"] and "Signed in" in tb["txt"] and "Sign out" in tb["txt"] and all(b[0] >= 0 and b[0] + b[2] <= tb["vw"] + 1 for b in (tb["name"], tb["si"], tb["so"])), tb)
             pg.click("[data-testid=top-sign-out]"); pg.wait_for_selector("#pw"); time.sleep(0.3); audit_state("login screen after Sign out")
             pg.fill("#pw", "sweep-pw"); pg.click("#pwGo"); pg.wait_for_selector("[data-testid=top-sign-out]")
             pg.evaluate("fetch('/api/auth/set', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: '' }) })"); time.sleep(0.5); pg.reload(); pg.wait_for_selector("#tabs [aria-selected=true]"); time.sleep(0.5)
@@ -333,18 +346,18 @@ try:
             if compact:
                 bad = []; seen_bar = set()
                 for lab, (b, e) in bars.items():
-                    if b["pos"] != "fixed" or abs(b["navBottom"] - b["vh"]) > 1 or b["navL"] > 0.5 or b["navR"] < b["vw"] - 0.5 or b["tabs"] != 6 or b["tabsVis"] != 6 or b["tabsIn"] != 6 or b["sel"] != 1 or b["tabCount"] != 1 or b["icons"] != 6: bad.append(f"{lab}: nav {json.dumps({k: b[k] for k in ('pos', 'navBottom', 'vh', 'tabs', 'tabsVis', 'tabsIn', 'sel', 'tabCount', 'icons')})}")
+                    if b["pos"] != "fixed" or abs(b["navBottom"] - b["vh"]) > 1 or b["navL"] > 0.5 or b["navR"] < b["vw"] - 0.5 or b["tabs"] != 5 or b["tabsVis"] != 5 or b["tabsIn"] != 5 or b["sel"] != (0 if "settings" in lab else 1) or b["tabCount"] != 1 or b["icons"] != 5: bad.append(f"{lab}: nav {json.dumps({k: b[k] for k in ('pos', 'navBottom', 'vh', 'tabs', 'tabsVis', 'tabsIn', 'sel', 'tabCount', 'icons')})}")
                     for x in b["bars"]:
                         seen_bar.add(x["q"])
                         if not (x["abovNav"] and x["inView"] and x["reach"] is not False) and not (x["q"] == ".actionbar" and False): bad.append(f"{lab}: {x['q']} bottom={x['bottom']:.0f} navTop={b['navTop']:.0f} inView={x['inView']} reach={x['reach']}")
                     if e["footBottom"] > e["lim"] + 1 or e["lastBottom"] > e["lim"] + 1: bad.append(f"{lab}: end of page under the bars (foot {e['footBottom']:.0f}, last control {e['lastBottom']:.0f}, limit {e['lim']:.0f})")
                 labels = next(iter(bars.values()))[0]["labels"]
-                check(f"{tag}(d) fixed bottom tab bar visible on every state (6 tabs with icons {labels}, exactly one selected, inside the screen), sticky action bars ({sorted(seen_bar)}) above it and reachable, page end clears the bars",
+                check(f"{tag}(d) fixed bottom tab bar visible on every state (5 tabs with icons {labels}, exactly one selected, inside the screen), sticky action bars ({sorted(seen_bar)}) above it and reachable, page end clears the bars",
                       not bad, "; ".join(bad[:4]) or f"{len(bars)} states checked")
             else:
                 b = pg.evaluate("() => { const n = document.querySelector('#tabs'), r = [...n.querySelectorAll('[role=tab]')].map(t => Math.round(t.getBoundingClientRect().top)); const h = document.querySelector('header.top');"
                                 " return { pos: getComputedStyle(n).position, rows: new Set(r).size, icons: [...n.querySelectorAll('.ti')].filter(i => i.getClientRects().length).length, sticky: getComputedStyle(h).position, h: Math.round(h.getBoundingClientRect().height) } }")
-                check(f"{tag}wide layout (desktop / tablet landscape): tabs in the top header on ONE row (not a bottom bar), no tab icons, header sticky", b["pos"] != "fixed" and b["rows"] == 1 and b["icons"] == 0 and b["sticky"] == "sticky" and b["h"] < 70, b)
+                check(f"{tag}wide layout (desktop / tablet landscape): sticky 40 px lamp strip on top, the five tabs + Setup as a left rail with icons, the transport bar under the strip", b["pos"] == "fixed" and b["rows"] == 6 and b["icons"] == 6 and b["sticky"] == "sticky" and b["h"] < 90, b)
 
             # ---------------- dialogs / panels
             if dialogs:
@@ -378,14 +391,14 @@ try:
                 pg.click("[data-testid=nt-cancel]"); time.sleep(0.3)
                 if pg.locator("#modal:not([hidden]) #mYes").count(): pg.click("#mYes"); time.sleep(0.3)
                 # Setup test list (2026-11): info sheet, the ⋮ menu, the Mirrored Bits form, About
-                pg.locator(".pcard p").first.click(); pg.wait_for_selector("[data-testid=info-sheet]"); time.sleep(0.3)
+                pg.locator(".pcard .meta").first.click(); pg.wait_for_selector("[data-testid=info-sheet]"); time.sleep(0.3)
                 dlg("test info sheet (5 sections + Run this test / Edit)", "#modal .box"); pg.click("[data-testid=sheet-close]"); time.sleep(0.2)
                 pg.locator(".pcard summary").first.click(); time.sleep(0.3); audit_state("setup/test card ⋮ menu open"); pg.keyboard.press("Escape"); time.sleep(0.2)
                 pg.click("[data-testid=setup-create-custom-test]"); pg.wait_for_selector("[data-testid=nt-page]"); pg.click("[data-testid=nt-proto-udp-mb]"); time.sleep(0.5)
                 audit_state("setup/new test (Mirrored Bits)"); bar_state("setup/new test (Mirrored Bits)")
                 pg.click("[data-testid=nt-cancel]"); time.sleep(0.4)
                 if pg.locator("#mYes").count(): pg.click("#mYes"); time.sleep(0.3)
-                pg.click("[data-testid=app-version]"); pg.wait_for_selector("[data-testid=whats-new]"); time.sleep(0.4); audit_state("about"); bar_state("about")
+                pg.click("[data-testid=app-version]" if pg.locator("[data-testid=app-version]").is_visible() else "[data-testid=foot-about]"); pg.wait_for_selector("[data-testid=whats-new]"); time.sleep(0.4); audit_state("about"); bar_state("about")
                 go("setup")
                 # Results 'More' menu + toast
                 go("results"); pg.click("#sMore summary"); time.sleep(0.3)
@@ -397,10 +410,10 @@ try:
                 check(f"{tag}(e) toasts are inside the screen and not under the bottom tab bar", t["l"] >= -0.5 and t["r"] <= t["vw"] + 0.5 and (t["b"] <= t["nt"] + 1 or not t["nfixed"]) and t["sw"] <= t["vw"], t)
                 pg.wait_for_function("document.querySelectorAll('#toast div').length == 0", timeout=8000)
                 # Run tab: the Stop confirm while a test is running
-                rid2 = trip(f"stopme {cname}", 12, 60, 50); time.sleep(1.0); pg.reload(); pg.wait_for_selector("#tabs [aria-selected=true]"); go("run"); pg.wait_for_selector("#stopBtn", timeout=8000)
-                pg.click("#stopBtn"); pg.wait_for_selector("#modal .box"); time.sleep(0.3)
+                rid2 = trip(f"stopme {cname}", 12, 60, 50); time.sleep(1.0); pg.reload(); pg.wait_for_selector("#tabs [aria-selected=true]"); go("run"); pg.wait_for_selector("[data-testid=tb-start]", timeout=8000)
+                pg.click("[data-testid=tb-start]"); pg.wait_for_selector("#modal .box"); time.sleep(0.3)
                 dlg("Stop-test confirm dialog (over the fixed Stop bar)", "#modal .box"); pg.click("#mNo"); time.sleep(0.2)
-                pg.click("#stopBtn"); pg.wait_for_selector("#mYes"); pg.click("#mYes"); wait_run(rid2); time.sleep(0.5)
+                pg.click("[data-testid=tb-start]"); pg.wait_for_selector("#mYes"); pg.click("#mYes"); wait_run(rid2); time.sleep(0.5)
                 # charts follow a rotation: Run/Results chart widths equal their box after the viewport is swapped
                 go("results"); pg.locator(".runlist tr[data-run]").first.click(); pg.wait_for_selector("#detail .u-wrap canvas"); time.sleep(0.6)
                 pg.set_viewport_size({"width": H, "height": W}); time.sleep(1.0)

@@ -206,8 +206,21 @@ class GenSize(BaseModel):
     max: int = Field(1518, ge=24, le=9000)
 
 
+class GenTarget(BaseModel):
+    """What one application (stream) of a test set must meet. A blank limit is not judged. The built-in values are example targets: edit them."""
+    max_loss_pct: Optional[float] = Field(None, ge=0, le=100)
+    max_latency_ms: Optional[float] = Field(None, gt=0)
+    latency_percentile: Literal[50, 95, 99, 100] = 99
+    max_jitter_ms: Optional[float] = Field(None, gt=0)
+    min_throughput_mbps: Optional[float] = Field(None, ge=0)
+    example: bool = True                                    # still the built-in sample value (the screens label it "example target"); editing it makes it the user's own
+
+
 class GenStream(BaseModel):
     name: str = Field("Stream", min_length=1, max_length=60)
+    enabled: bool = True                                    # off = kept in the list but not sent
+    app: str = Field("", max_length=40)                     # the application library entry this stream was made from (test sets); "" = a plain stream
+    target: Optional[GenTarget] = None                      # test sets: this application's own pass limits (None = the test's pass limits)
     type: Literal["l2", "ip", "udp", "tcp"] = "udp"
     direction: Literal["a_to_b", "b_to_a"] = "a_to_b"      # older tests: the test's "from" Pi sends (a_to_b) or the "to" Pi sends (b_to_a)
     src: Endpoint = Endpoint()                              # sending Pi; blank = taken from `direction`
@@ -274,9 +287,34 @@ class GenSteps(BaseModel):
         return v
 
 
+TESTSET_GROUPS = ("da", "fan", "link", "mine")
+
+
+class GenTestSet(BaseModel):
+    """A test set (docs/design/UX-INSTRUMENT-FABLE.md 5.2): the streams are the applications, run in up to three steps and stored as one result.
+    Step 1 = each application alone (short, not judged), step 2 = all together (judged against each application's target), step 3 = all together
+    plus fill traffic (shown, not judged)."""
+    enabled: bool = False
+    group: Literal["da", "fan", "link", "mine"] = "mine"
+    alone: bool = True                                      # step 1
+    alone_s: float = Field(20, ge=5, le=300)
+    fill: bool = False                                      # step 3
+    fill_s: float = Field(30, ge=5, le=3600)
+    fill_mbps: float = Field(20, gt=0, le=10_000)
+    lengths: List[float] = Field(default_factory=list, max_length=8)      # length choices for the "together" step (seconds); empty = the length is typed
+
+    @field_validator("lengths")
+    @classmethod
+    def _lens(cls, v):
+        if any(x <= 0 or x > 7 * 24 * 3600 for x in v):
+            raise ValueError("length choices must be between 1 second and 7 days")
+        return v
+
+
 class GenCfg(BaseModel):
+    testset: GenTestSet = GenTestSet()
     streams: List[GenStream] = Field(default_factory=lambda: [GenStream(name="Stream 1")], min_length=1, max_length=16)
-    duration_s: float = Field(30, gt=0, le=7 * 24 * 3600)
+    duration_s: float = Field(30, ge=0, le=7 * 24 * 3600)    # 0 = until stopped
     interface: str = "auto"                 # this Pi's port for raw (l2) streams
     peer_interface: str = "auto"            # the other Pi's port
     peer_api: str = ""                      # http://<address of the Pi you send to>:8080 (control channel)
@@ -287,6 +325,11 @@ class GenCfg(BaseModel):
 
     @model_validator(mode="after")
     def _steps_ok(self):
+        if self.testset.enabled:
+            if self.duration_s <= 0:
+                raise ValueError("A test set needs a length for its 'all together' step.")
+            if self.steps.enabled:
+                raise ValueError("A test set has its own steps (alone, together, plus fill): switch 'Throughput in steps' off.")
         if self.steps.enabled and any(s.burst_gap_ms > 0 for s in self.streams):
             raise ValueError("Throughput in steps needs a steady rate: set the gap between bursts to 0, or switch the method to Flood.")
         if self.steps.enabled and any(s.packets for s in self.streams):
@@ -396,11 +439,19 @@ class Profile(BaseModel):
     idle_mode: Literal["after", "interleaved"] = "after"
     one_way: bool = False
     max_clock_offset_ms: float = Field(2.0, gt=0)
+    length_choices: List[int] = Field(default_factory=list, max_length=8)     # trip tests: the lengths offered on the test page (seconds); empty = the length is typed
     rule: Rule = Rule()
     impairment: Optional[str] = None
     impair_iface: str = ""                                # interface netem is applied to (blank = auto)
     summary_interval_s: float = Field(1.0, ge=0.1, le=3600)
     load_mbps: float = Field(0.0, ge=0, le=1000)       # latency-under-load background traffic (UDP)
+
+    @field_validator("length_choices")
+    @classmethod
+    def _lchoices(cls, v):
+        if any(x < 1 or x > 7 * 24 * 3600 for x in v):
+            raise ValueError("length choices must be between 1 second and 7 days")
+        return v
 
     @field_validator("idle_gaps_s")
     @classmethod
@@ -504,7 +555,7 @@ def merge_profile(default: dict, override: Optional[dict]) -> dict:
 
 
 def builtin_presets() -> List[dict]:
-    return _trip_presets() + generator_presets() + sniffer_presets()
+    return _trip_presets() + generator_presets() + sniffer_presets() + testset_presets()
 
 
 TRIP_INFO = {
@@ -591,30 +642,30 @@ def _trip_presets() -> List[dict]:
         _preset("DER trip test",
                 "Emulates a Mirrored Bits trip signal over a serial link: a small message every 10 ms for 10 minutes, "
                 "plus 'first message after quiet' checks. Pass = 99 % of messages arrive within 60 ms.",
-                transport="serial", serial={"baud": 19200}, frame="compact", interval_ms=10, duration_s=600,
+                transport="serial", serial={"baud": 19200}, frame="compact", interval_ms=10, duration_s=600, length_choices=[60, 600, 3600, 86400],
                 threshold_ms=60, idle_gaps_s=idle, idle_repeats=3, rule={"percentile": 99}),
         _preset("DER trip — Mirrored Bits mode",
                 "A pair of SEL-2505-style Mirrored Bits emulators, one at each end: full messages nonstop, ROK / RBAD / CBAD, and the time for a bit change to cross. "
                 "Pass = 99 % of bit changes within 60 ms, ROK down no more than 0.1 % of the time, no RBAD. SimCodec (our own format): emulator-to-emulator only, not compatible with SEL relays.",
-                transport="serial", serial={"baud": 38400}, mode="mirrored", frame="compact", interval_ms=50, duration_s=600,
+                transport="serial", serial={"baud": 38400}, mode="mirrored", frame="compact", interval_ms=50, duration_s=600, length_choices=[60, 600, 3600, 86400],
                 threshold_ms=60, rule={"percentile": 99}),
         _preset("DER transfer trip \u2014 Orbit radio (2 s budget)",
                 "Substation relay (SEL-351/751/651R class) \u2192 DER relay (SEL-700GT class), nonstop frames both ways over the radio's serial port at 19200 baud (a 19-byte frame every 9.9 ms): "
                 "round trip of every frame from the echo, lost frames, CRC errors, outages. Pass = 99.9 % of round trips within 200 ms. Run for days to catch the worst case. Our own frame format: not SEL wire-compatible.",
-                transport="serial", serial={"baud": 19200}, mode="mirrored", frame="compact", interval_ms=10, duration_s=24 * 3600,
+                transport="serial", serial={"baud": 19200}, mode="mirrored", frame="compact", interval_ms=10, duration_s=24 * 3600, length_choices=[60, 600, 3600, 86400],
                 threshold_ms=200, timeout_ms=1000, rule={"percentile": 99.9, "max_loss_pct": 0.1},
                 mirrored={"codec": "trip", "trip_every_s": 2.0, "max_down_pct": 0.1,
                           "settings": {"rmb_pu": [2] * 8, "rmb_do": [2] * 8, "rtt_max_ms": 200.0,
                                        "role_names": {"A": "Substation relay (SEL-351/751/651R class)", "B": "DER relay (SEL-700GT class)"}}}),
         _preset("DER trip test (IP)",
                 "Same trip-signal timing over the radio's Ethernet port (UDP).",
-                transport="udp", frame="extended", interval_ms=50, duration_s=600, threshold_ms=60,
+                transport="udp", frame="extended", interval_ms=50, duration_s=600, threshold_ms=60, length_choices=[60, 600, 3600, 86400],
                 idle_gaps_s=idle, idle_repeats=3),
         _preset("Quick link check", "One minute over UDP, a message every 20 ms. Good for a first look at a new link.",
-                transport="udp", frame="extended", interval_ms=20, duration_s=60, threshold_ms=60),
+                transport="udp", frame="extended", interval_ms=20, duration_s=60, threshold_ms=60, length_choices=[60, 600, 3600]),
         _preset("TCP session test",
                 "Keeps one TCP session open, times the connection set-up and how fast it recovers after a drop.",
-                transport="tcp", frame="extended", interval_ms=50, duration_s=600, threshold_ms=60,
+                transport="tcp", frame="extended", interval_ms=50, duration_s=600, threshold_ms=60, length_choices=[60, 600, 3600],
                 idle_gaps_s=idle, idle_repeats=2),
         _preset("Overnight soak",
                 "12-hour serial test with quiet-period checks (up to 10 minutes) mixed in. Summaries every 10 s.",
@@ -622,15 +673,15 @@ def _trip_presets() -> List[dict]:
                 idle_gaps_s=[5, 30, 120, 600], idle_repeats=3, idle_mode="interleaved", summary_interval_s=10),
         _preset("Back-to-back baseline",
                 "Two Pis joined by a null-modem cable (no radio). Measures the delay added by the Pis and adapters themselves.",
-                transport="serial", serial={"baud": 115200}, interval_ms=20, duration_s=60, threshold_ms=10,
+                transport="serial", serial={"baud": 115200}, interval_ms=20, duration_s=60, threshold_ms=10, length_choices=[60, 600, 3600],
                 timeout_ms=200, rule={"percentile": 99, "max_loss_pct": 0}),
         _preset("GOOSE trip test - L2",
                 "Layer-2 GOOSE (Ethernet, VLAN priority 4) event round trip across the link. Pass = 99 % within 60 ms.",
-                transport="goose_l2", interval_ms=500, duration_s=300, threshold_ms=60, frame="extended",
+                transport="goose_l2", interval_ms=500, duration_s=300, threshold_ms=60, frame="extended", length_choices=[60, 300, 3600],
                 idle_gaps_s=[5, 30], idle_repeats=3),
         _preset("GOOSE trip test - L3 multicast",
                 "Layer-3 routed GOOSE (R-GOOSE over UDP multicast) event round trip. Pass = 99 % within 60 ms.",
-                transport="goose_l3", interval_ms=500, duration_s=300, threshold_ms=60, frame="extended",
+                transport="goose_l3", interval_ms=500, duration_s=300, threshold_ms=60, frame="extended", length_choices=[60, 300, 3600],
                 idle_gaps_s=[5, 30], idle_repeats=3),
     ]
 
@@ -668,6 +719,36 @@ def generator_presets() -> List[dict]:
         _gen("L2 priority frames", "Raw Ethernet frames with VLAN priority 5, to check that priority tags survive the path (needs the Pis on the same Layer-2 network).",
              [S("L2 priority", type="l2", rate={"pps": 500}, size={"mode": "fixed", "size": 128}, vlan=True, vlan_prio=5, rtt_probe_pps=20)], 30,
              max_loss_pct=0.1, max_latency_ms=60),
+    ]
+
+
+def _testset(name, description, group, apps, duration_s=600, lengths=(60, 600, 3600, 86400), **ts):
+    """A built-in test set: the library's applications with their example targets, run alone, then together (and optionally with fill traffic)."""
+    from . import apps as A
+    streams = [A.new_stream(a) for a in apps]
+    return validate_profile({"name": name, "description": description, "builtin": True, "kind": "generator", "duration_s": 3600,
+                             "gen": {"streams": streams, "duration_s": duration_s, "rule": {"max_loss_pct": None},
+                                     "testset": {"enabled": True, "group": group, "lengths": list(lengths), **ts}}})
+
+
+def testset_presets() -> List[dict]:
+    """Utility test sets: several applications on one link at once, a target for each, one result and one report (docs/design/UX-INSTRUMENT-FABLE.md 5.2).
+    The targets are example values: every one is editable on the test page."""
+    return [
+        _testset("Recloser / FLISR SCADA \u00b7 DNP3 poll and unsolicited",
+                 "A recloser or FLISR scheme on one link: the master's DNP3 polls and the outstation's unsolicited event reports, alone and then together. "
+                 "Each has its own example target.", "da", ["scada_poll", "scada_unsol"], 600),
+        _testset("FAN mix \u00b7 SCADA + NMS + camera",
+                 "A field area network link carrying SCADA polling, NMS polling and a camera stream at once. Each application runs alone for 20 s, then all together "
+                 "for the chosen length; the table shows what sharing the link cost each of them against its example target.", "fan",
+                 ["scada_poll", "nms", "video"], 600),
+        _testset("FAN mix \u00b7 full (adds transfer trip and AMI)",
+                 "The FAN mix plus a transfer-trip stream, unsolicited SCADA and AMI meter reads, with a third step that adds 20 Mb/s of fill traffic. "
+                 "The transfer trip here is a trip-like UDP stream; the serial trip stays its own test.", "fan",
+                 ["trip", "scada_poll", "scada_unsol", "nms", "video", "ami"], 600, fill=True, fill_mbps=20),
+        _testset("AMI backhaul",
+                 "An AMI collector link: meter reads in bursts, a firmware push and NMS polling at the same time, with a fill step to see where the link gives out.",
+                 "fan", ["ami", "nms_file", "nms"], 600, fill=True, fill_mbps=10),
     ]
 
 

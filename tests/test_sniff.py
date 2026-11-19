@@ -496,7 +496,7 @@ def test_sniffer_run_over_api_serial_download_usb_pdf_and_errors(pty2, monkeypat
         live = c.get("/api/sniff/live").json()
         assert live["n"] == 16 and live["rows"][0]["proto"] == "Modbus RTU"
         det = c.get(f"/api/sniff/packet/{live['rows'][0]['n']}").json()
-        assert det["layers"][0]["name"] == "Modbus RTU" and det["layers"][0]["fields"]["Function"].startswith("3")
+        assert det["layers"][0]["name"] == "Frame" and det["layers"][-1]["name"] == "Modbus RTU" and det["layers"][-1]["fields"]["Function"].startswith("3")
         assert c.get("/api/status").json()["run"]["running"]
         c.post(f"/api/runs/{rid}/stop")
         r = _wait(c, rid)

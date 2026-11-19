@@ -30,7 +30,7 @@ VENV = next((c for c in (os.environ.get("TT_VENV_PYTHON"), os.path.join(ROOT, "v
 
 def check(name, ok, ev=""):
     results.append((name, bool(ok)))
-    print(f"CHECK {name} | {'pass' if ok else 'FAIL'} | {str(ev)[:420]}", flush=True)
+    print(f"CHECK {name} | {'pass' if ok else 'FAIL'} | {str(ev)[:3000]}", flush=True)
 
 
 def http(port, method, path, body=None, cookie=None, raw=False):
@@ -234,7 +234,7 @@ try:
                         page.wait_for_timeout(1200)
                     inject(page)
                     w = ta_watch(page)
-                    need = [f"named {pi}", "For AI assistants", "/ai-guide", "AI guide", LABELS["setup"], LABELS["settings"], "No test is running"]
+                    need = [f"named {pi}", "For AI assistants", "/ai-guide", "AI guide", LABELS["tests"], LABELS["config"], "No test is running"]
                     miss = [n for n in need if n not in w]
                     pos = max(w.find(n) for n in need[:3]) if not miss else -1
                     check(f"{tag}Watch/readPage text on {LABELS[tab]} ({phase}) contains the Pi's name, live state, screen list and the AI guide link", not miss and 0 <= pos < CAP_WATCH, f"missing={miss} furthest essential at char {pos} of cap {CAP_WATCH}; length {len(w)}")
@@ -262,8 +262,9 @@ try:
         def is_cond(tid): return any(fnmatch.fnmatchcase(tid, c) for c in K.CONDITIONAL)
         def reach(steps):
             page.goto(f"http://127.0.0.1:{P1}/", wait_until="load"); page.wait_for_timeout(500)
+            if not steps or not steps[0][1].startswith("tab-"): page.evaluate("location.hash = '#tests'"); page.wait_for_timeout(600)      # screens that start on the test list (Home is the landing page now)
             for s in steps:
-                loc = page.locator(f'[data-testid="{s[1]}"]')
+                loc = page.locator(f'[data-testid="{s[1]}"]') if s[1] != "tab-config" else page.locator('[data-testid="tab-config"]:visible, [data-testid="tab-config-rail"]:visible').first
                 try: loc.wait_for(state="visible", timeout=12000)
                 except Exception:
                     print("# DIAG reach failed at", s, "url", page.url, "main text:", page.evaluate("() => document.querySelector('#main').innerText.slice(0, 160)"), "errs", errs[-2:], flush=True); raise
@@ -271,7 +272,9 @@ try:
                 elif s[0] == "type": loc.fill(s[2]); loc.dispatch_event("change")
                 elif s[0] == "choose": loc.select_option(label=s[2])
                 page.wait_for_timeout(600 if "sniffer" in s[1] else 250)
-            page.wait_for_timeout(1200 if (steps and steps[0][1] == "tab-settings") else 900)
+            page.wait_for_timeout(1200 if (steps and steps[0][1] == "tab-config") else 900)
+        def reach_cfg(row):
+            page.locator('[data-testid="tab-config"]:visible, [data-testid="tab-config-rail"]:visible').first.click(); page.wait_for_selector(f'[data-testid="{row}"]'); page.locator(f'[data-testid="{row}"]').click()
         def view_ids(v):
             ids = {}
             for steps in [v["reach"]] + v.get("variants", []):
@@ -344,7 +347,7 @@ try:
             steps = [s for s in rec["change-limits"] if "nt-head-traffic" in s or "setup-test-length" in s]
             return run_steps(page, steps, subs={"60": str(secs)})
         def start_line(r):
-            return next(s for s in r if 'selector [data-testid="nt-start"]' in s)
+            return next(s for s in r if 'selector [data-testid="tb-start"]' in s)
         def failures(log): return [(s, w) for s, ok, w in log if not ok]
 
         # --- RECIPE 1: add another Pi to the list
@@ -418,13 +421,13 @@ try:
         # --- RECIPE 4: the generator between two Pis, one stream each way
         fresh()
         r4 = rec.get("run-generator", [])
-        pre4 = [s for s in r4 if "Start traffic test" not in s]
+        pre4 = [s for s in r4 if 'selector [data-testid="tb-start"]' not in s]
         log = run_steps(page, pre4, subs={"<name of the sending Pi>": "This Pi", "<name of the receiving Pi>": "pi2", "<name of the second sending Pi>": "pi2", "<name of the second receiving Pi>": "This Pi", "30": "5"})
         bad = failures(log)
-        sl = [s for s in r4 if "Start traffic test" in s][0]
+        sl = [s for s in r4 if 'selector [data-testid="tb-start"]' in s][0]
         bad += failures(run_steps(page, [sl]))
         page.wait_for_timeout(1500)
-        gen_ui = [page.locator('[data-testid="run-mark"]').count(), page.locator('[data-testid="run-lamp"]').count()]
+        gen_ui = [page.locator('[data-testid="tb-mark"]').count(), page.locator('[data-testid="run-lamp"]').count()]
         idle(P1, 60); page.wait_for_timeout(1500)
         gr = http(P1, "GET", "/api/runs")[1][0]
         full = http(P1, "GET", f"/api/runs/{gr['id']}")[1]
@@ -433,7 +436,7 @@ try:
         gp = page.locator('[data-testid="gen-pairs"]').count()
         check("RECIPE 'Run the generator between several Pis (N → M)' followed on pi1 from the guide only -> two streams (pi1 → pi2 and pi2 → pi1) ran and the result has a 'Per pair of Pis' table",
               not bad and gr["status"] == "finished" and pairs == [("pi1", "pi2"), ("pi2", "pi1")] and gp == 1, f"steps={len(r4)} failures={bad[:2]} status={gr['status']} pairs={pairs} gen-pairs={gp}")
-        check("   ...the generator's run view showed '⚑ Mark' (run-mark) and the tester lamp line (run-lamp), as the guide says", gen_ui == [1, 1], gen_ui)
+        check("   ...the generator's run view showed 'Mark' (tb-mark in the transport bar) and the tester lamp line (run-lamp), as the guide says", gen_ui == [1, 1], gen_ui)
 
         # --- RECIPE 5: one way / both ways at once
         fresh()
@@ -485,7 +488,7 @@ try:
         page.evaluate("async ([a, b]) => { const m = await import('/newtest.js'); const p = m.ntState.c.p; p.dest.port = a; p.dests[0].port = b; }", [_B + 560, _B + 561])
         page.wait_for_timeout(300); page.locator('[data-testid="nt-head-traffic"]').click(); page.wait_for_timeout(300); page.locator('[data-testid="nt-head-traffic"]').click(); page.wait_for_timeout(300)
         page.evaluate("async ([a, b]) => { const m = await import('/newtest.js'); const p = m.ntState.c.p; p.dest.port = a; p.dests[0].port = b; }", [_B + 560, _B + 561])
-        page.wait_for_function("() => { const b = document.querySelector('[data-testid=nt-start]'); return b && !b.disabled; }", timeout=20000)
+        page.wait_for_function("() => { const b = document.querySelector('[data-testid=tb-start]'); return b && !b.disabled; }", timeout=20000)
         bad += failures(run_steps(page, [start_line(r5b)]))
         rows = 0
         try:
@@ -516,7 +519,7 @@ try:
               f"steps={len(r6)} failures={bad[:2]} dests={dests[:120]} made={json.dumps(made)[:160] if made else None}")
         page.locator('[data-testid="setup-run--guide-recipe-test"]').click(); page.wait_for_selector('[data-testid="nt-checks"] .ntck.ok', timeout=20000)
         chips = page.locator('[data-testid="nt-checks"]').inner_text().lower()
-        check("   ...▶ Run on that card opens the New test page; the check ran by itself (chip 'pi2 answered') and ▶ Start (nt-start) is enabled", "pi2 answered" in chips and page.locator('[data-testid="nt-start"]').is_enabled(), chips)
+        check("   ...▶ Run on that card opens the New test page; the check ran by itself (chip 'pi2 answered') and START (tb-start) is enabled", "pi2 answered" in chips and page.locator('[data-testid="tb-start"]').is_enabled(), chips)
         if made: http(P1, "DELETE", f"/api/profiles/{made['id']}")
 
         # ---------------------------------------------------------------- state-dependent controls (a finished run, another Pi listed, a saved test, a password)
@@ -534,7 +537,7 @@ try:
         ids = {e["t"]: e for e in screen_ids()}
         have = [t for t in ("results-messages-csv", "results-summary-per-second-csv", "results-everything-json", "results-pdf-report-2", "results-delete-this-test", "result-header", "result-ends-label", "result-ends-line") if t in ids]
         check("Results: an opened single test shows its header (who sent to whom) and the export row the guide names", len(have) == 8, have)
-        reach([("click", "tab-settings")]); page.wait_for_selector('[data-testid="peer-row"]', timeout=15000); page.wait_for_timeout(500)
+        reach([("click", "tab-config"), ("click", "setup-pis")]); page.wait_for_selector('[data-testid="peer-row"]', timeout=15000); page.wait_for_timeout(500)
         ids = {e["t"] for e in screen_ids()}
         want = ["peers-list", "peer-row", "peer-name", "peer-address", "peer-reachable", "peer-clock", "peer-open", "peer-password", "peer-clock-source", "peer-update", "peer-remove", "peer-add-host", "peer-add-go"]
         check("Settings with another Pi listed shows every row control the guide names (peer-*)", all(t in ids for t in want) and all(any(t == c[0] for v in K.VIEWS.values() for c in v["controls"]) for t in want), [t for t in want if t not in ids])
@@ -550,7 +553,7 @@ try:
         sw = page.locator('[data-testid="nt-sentence"]').inner_text() if page.locator('[data-testid="nt-sentence"]').count() else ""
         check("   ...'⇅ Swap' turns it round: the far Pi sends to this Pi (nt-sentence)", "sends to pi1" in sw or "send to pi1" in sw, sw)
         http(P1, "POST", "/api/profiles/1/duplicate")
-        reach([("click", "tab-setup")])
+        reach([("click", "tab-tests")])
         names = [e["t"] for e in screen_ids() if e["t"].startswith("setup-delete--")]
         check("Setup with a saved test shows 'Delete' for it (setup-delete--<test name>)", bool(names), names[:2])
 
@@ -561,7 +564,7 @@ try:
         bad = [(s, w) for s, ok, w in log if not ok]
         page.wait_for_timeout(900)
         me = http(P1, "GET", "/api/pi")[1]; cs = http(P1, "GET", "/api/clock/source")[1]
-        page.locator('[data-testid="tab-run"]').click(); page.wait_for_timeout(900)
+        page.locator('[data-testid="tab-tests"]').click(); page.wait_for_timeout(900)
         top = page.locator('[data-testid="top-pi-name"]').inner_text()
         check("RECIPE 'Name this Pi / set the time source' followed from the guide only -> the Pi is renamed (top bar, API) and its time source is 'This Pi'", not bad and me["name"] == "substation-1" and top == "substation-1" and cs.get("setting") in ("self", me["id"]), f"steps={len(r7)} failures={bad[:2]} name={me['name']} top={top} setting={cs.get('setting')}")
         http(P1, "PUT", "/api/pi", {"name": "pi1"}); http(P1, "PUT", "/api/clock/source", {"source": "auto"})
@@ -588,17 +591,17 @@ try:
               not bad and ap and cl and static_ok and "net-wifi-apply" in ids and "net-fallback" in ids, f"failures={bad[:2]} ap={ap} join={cl} static={static_ok} iface={iface}")
 
         # --- password: top bar + the guide's login rule
-        page.locator('[data-testid="tab-settings"]').click(); page.wait_for_selector('[data-testid="settings-password"]', timeout=15000); page.wait_for_timeout(600)
+        reach_cfg("setup-password"); page.wait_for_selector('[data-testid="settings-password"]', timeout=15000); page.wait_for_timeout(600)
         for t, v in (("settings-password", "pw-aig-1234"),):
             page.locator(f'[data-testid="{t}"]').fill(v)
         page.locator('[data-testid="settings-set-password"]').click(); page.wait_for_timeout(1500)
         ids = {e["t"]: e for e in screen_ids()}
         check("Settings with a password set shows 'Remove password' (settings-remove-password) and 'Change password'", "settings-remove-password" in ids and "Change password" in (ids.get("settings-change-password", {}).get("text", "") or ids.get("settings-set-password", {}).get("text", "") or ""), [t for t in ids if "password" in t])
-        page.locator('[data-testid="tab-run"]').click(); page.wait_for_timeout(900)
+        page.locator('[data-testid="tab-tests"]').click(); page.wait_for_timeout(900)
         ids2 = {e["t"]: e for e in screen_ids()}
         check("top bar with a password set (from the next screen on): only the Pi's name plus 'Signed in' and 'Sign out' (top-pi-name, top-signed-in, top-sign-out), as the guide says",
               ids2.get("top-pi-name", {}).get("text") == "pi1" and ids2.get("top-signed-in", {}).get("text") == "Signed in" and ids2.get("top-sign-out", {}).get("text") == "Sign out", [(t, ids2[t]["text"]) for t in ids2 if t in ("top-pi-name", "top-signed-in", "top-sign-out")])
-        page.locator('[data-testid="tab-settings"]').click(); page.wait_for_selector('[data-testid="settings-remove-password"]', timeout=15000); page.wait_for_timeout(500)
+        reach_cfg("setup-password"); page.wait_for_selector('[data-testid="settings-remove-password"]', timeout=15000); page.wait_for_timeout(500)
         g_locked = ctx.request.get(f"http://127.0.0.1:{P1}/ai-guide.txt").text()
         check("password set + this browser signed in (cookie): the guide shows the live state", "Test running:" in g_locked and "LIVE STATE" in g_locked and "Hidden: this app is password-protected" not in g_locked and "Last result: #" in g_locked, g_locked[g_locked.find("LIVE STATE"):g_locked.find("LIVE STATE") + 160].replace("\n", " "))
         anon = http(P1, "GET", "/ai-guide.txt", raw=True)[1].decode()
@@ -612,7 +615,7 @@ try:
         m = re.search(r"Last result: (#\d+.*)", g2)
         check("guide live state shows the finished run (name, verdict, p99, lost)", bool(m) and NAME in m.group(1) and "verdict PASS" in m.group(1) and "p99" in m.group(1) and "lost 0 of" in m.group(1), m.group(1)[:200] if m else "no 'Last result' line")
         check("guide live state lists pi2 with its address and reachability, the reflector and the time source", f"pi2 at 127.0.0.1:{P2} reachable" in g2 and "Reflector (" in g2 and "Time source setting:" in g2, g2[g2.find("Other Pis this Pi knows"):g2.find("Other Pis this Pi knows") + 160].replace("\n", " "))
-        page.locator('[data-testid="tab-run"]').click(); page.wait_for_timeout(1500)
+        page.locator('[data-testid="tab-tests"]').click(); page.wait_for_timeout(1500)
         page.screenshot(path=os.path.join(SHOTS, "ai-guide-screen-with-context-landscape.png"), full_page=True)
         w = ta_watch(page) if (inject(page) or True) else ""
         check("after the test, Watch text carries 'Last result' PASS in the page note", f"Last result: '{NAME}' PASS" in w, w[w.find("For AI"):w.find("For AI") + 420])

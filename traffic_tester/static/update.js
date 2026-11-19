@@ -41,7 +41,7 @@ async function paint(info) {
     <div class="row upd-roll"><button class="btn" id="updRoll" ${can && c.previous_version ? '' : 'disabled'}>Roll back to previous version${c.previous_version ? ' (' + esc(c.previous_version) + ')' : ''}</button>
       <small class="muted">${c.previous_version ? 'Your tests, results and settings are never touched.' : 'Available after the first update.'}</small></div>
     <label class="chk upd-daily"><input type="checkbox" id="updDaily" ${info.daily_check ? 'checked' : ''}> Check for updates daily</label>
-    <small class="muted">Only tells you here (a dot on Settings); it never installs by itself.</small>
+    <small class="muted">Only tells you here (a dot on Setup); it never installs by itself.</small>
     ${otherHtml(info, pl.peers)}`;
   bind(info, pl.peers);
   if (working) poll(); else if (info.partner && info.partner.state === 'working') pollPartner();
@@ -195,10 +195,10 @@ function pollPartner() {
 export async function updateBadge() {
   try {
     const info = await api('/update/status'); const l = info.online && info.online.last;
-    const tab = document.querySelector('[data-tab="settings"]'); if (!tab) return;
+    const tab = document.querySelector('[data-tab="config"]'); if (!tab) return;
     const show = !!(info.daily_check && l && l.newer);
     let d = tab.querySelector('.updot');
-    if (show && !d) { d = document.createElement('span'); d.className = 'updot'; d.title = `Version ${l.version} is available (Settings → Software update)`; tab.appendChild(d); }
+    if (show && !d) { d = document.createElement('span'); d.className = 'updot'; d.title = `Version ${l.version} is available (Setup → Software update)`; tab.appendChild(d); }
     if (!show && d) d.remove();
   } catch { }
 }

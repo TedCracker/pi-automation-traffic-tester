@@ -186,7 +186,7 @@ function $$peer(list, d) {
         } else if (act === 'update') {
           sessionStorage.setItem('tt_update_peer', id);
           document.dispatchEvent(new CustomEvent('tt-update-peer', { detail: { id } }));
-          const u = document.getElementById('setUpdate'); if (u) u.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          const u = document.getElementById('setUpdate'); if (u) u.scrollIntoView({ behavior: 'smooth', block: 'start' }); else location.hash = '#config/update';      // the update card is its own Setup page now
         }
       } catch (e) { toast(e.message, true); if (act === 'pwsave') msg.textContent = e.message; b.disabled = false; }
     });

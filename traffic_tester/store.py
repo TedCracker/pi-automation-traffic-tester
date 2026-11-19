@@ -516,6 +516,10 @@ class Store:
             self.db.execute("UPDATE runs SET ended_at=?, status=?, summary_json=?, verdict=? WHERE id=?",
                             (now(), status, json.dumps(summary) if summary else None, v, run_id))
 
+    def update_summary(self, run_id: int, summary: dict) -> None:
+        with self.lock:
+            self.db.execute("UPDATE runs SET summary_json=? WHERE id=?", (json.dumps(summary), run_id))
+
     def _run(self, r) -> dict:
         d = dict(r)
         d["profile"] = json.loads(d.pop("profile_json") or "{}")
@@ -536,12 +540,12 @@ class Store:
             r = self.db.execute("SELECT * FROM runs WHERE id=?", (rid,)).fetchone()
         return self._run(r) if r else None
 
-    def list_runs(self, session_id: Optional[int] = None) -> List[dict]:
+    def list_runs(self, session_id: Optional[int] = None, limit: Optional[int] = None) -> List[dict]:
         q, a = "SELECT * FROM runs", ()
         if session_id:
             q, a = q + " WHERE session_id=?", (session_id,)
         with self.lock:
-            rows = self.db.execute(q + " ORDER BY id DESC", a).fetchall()
+            rows = self.db.execute(q + " ORDER BY id DESC" + (f" LIMIT {int(limit)}" if limit else ""), a).fetchall()
         from . import compare as C
         out, base = [], C.BaselineView(self)
         for r in rows:

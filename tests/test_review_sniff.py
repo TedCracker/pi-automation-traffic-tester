@@ -427,11 +427,11 @@ def test_ipv6_tcp_is_not_shown_as_an_ipv4_layer():
     v6 = a + a + b"\x86\xdd" + struct.pack(">IHBB", 0x60000000, len(tcp), 6, 57) + src + dst + tcp
     ls = analyze.layers(v6, pcapng.LINKTYPE_ETHERNET)
     names = [x["name"] for x in ls]
-    assert "IPv4" not in names and "Ports" not in names and names[:2] == ["Ethernet", "IPv6"]
+    assert "IPv4" not in names and "TCP" not in names and names[:2] == ["Ethernet", "IPv6"]
     f = ls[1]["fields"]
     assert f["Source"] == "2001:db8:0:0:0:0:0:1" and f["Destination"] == "2001:db8:0:0:0:0:0:2" and f["Hop limit"] == 57 and "TTL" not in f
     v4 = wrap.Wrapper().dnp3(dnp3.build_frame(0xC4, 1, 1024, bytes([0xC0, 0xC1, 1, 60, 2, 6])), True)      # IPv4 is unchanged
-    assert [x["name"] for x in analyze.layers(v4, pcapng.LINKTYPE_ETHERNET)] == ["Ethernet", "IPv4", "Ports", "DNP3"]
+    assert [x["name"] for x in analyze.layers(v4, pcapng.LINKTYPE_ETHERNET)] == ["Ethernet", "IPv4", "TCP", "DNP3"]
 
 
 def test_short_wifi_control_frames_are_named():

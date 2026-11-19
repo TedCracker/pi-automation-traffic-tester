@@ -1,10 +1,12 @@
-// Setup = the list of tests (built-in and your own). ▶ Run, Edit and "＋ New test" all open the same one-page form (newtest.js):
+// Tests = the list of tests (built-in and your own). ▶ Run, Edit and "＋ New test" all open the same one-page form (newtest.js):
 // Port -> Protocol -> From / To -> Traffic, with the Start bar always in the same place. No numbered wizard, no "two Pis" assumption.
 import { $, $$, esc, api, toast, confirmBox, sheetBox, describeProfile, TRANSPORT_NAMES, download, dur, bindOnce } from './ui.js';
-import { S } from './state.js';
+import { S, isTestset } from './state.js';
+import { renderTestset } from './testset.js';
 import { loadPeers } from './endpoints.js';
-import { openNewTest, newTestOpen } from './newtest.js';
+import { openNewTest, newTestOpen, closeNewTest } from './newtest.js';
 import { Job } from './job.js';
+import { setLoaded, loadedProfile } from './transport.js';
 
 let goNext = () => { };
 
@@ -15,6 +17,7 @@ export async function loadProfiles() {
 
 export async function renderSetup(root, onStart) {
   goNext = onStart;
+  closeNewTest();                                       // the Tests tab always lands on the list: a test page left open by another tab must not swallow the taps
   await Promise.all([loadProfiles(), loadPeers()]);
   root.innerHTML = '<div id="stepBody"></div>';
   bindOnce(root, 'click', ev => listClick(ev, root));
@@ -33,26 +36,30 @@ function listClick(ev, root) {
 }
 
 const WIDE = matchMedia('(min-width:701px)');            // wide screens show Delete / Hide as clear buttons; phones keep them in the ⋮ menu (one place only, never both)
-const trips = () => S.profiles.filter(p => !p.kind || p.kind === 'trip');
-const kindLine = p => `${p.mode === 'mirrored' ? 'Mirrored Bits mode' : TRANSPORT_NAMES[p.transport]} · ${p.mode === 'mirrored' ? (p.transport === 'serial' ? p.serial.baud : p.mirrored.rate_baud) + ' baud · test bit every ' + p.mirrored.trip_every_s + ' s' : p.interval_ms + ' ms'} · ${dur(p.duration_s)} · limit ${p.threshold_ms} ms`;
+const trips = () => S.profiles.filter(p => !p.kind || p.kind === 'trip' || isTestset(p));          // the Tests list: trip tests and test sets
+// Test sets in groups (docs/design/UX-INSTRUMENT-FABLE.md 5.2): DA, FAN, Link basics, My tests. A test set names its own group; the older trip tests fall into the group they belong to.
+const GROUPS = [['da', 'DA · distribution automation'], ['fan', 'FAN · many apps, one link'], ['link', 'Link basics'], ['mine', 'My tests']];
+const groupOf = p => isTestset(p) ? (p.builtin ? p.gen.testset.group : 'mine') : !p.builtin ? 'mine' : /^(DER|GOOSE|Mirrored|Recloser)/i.test(p.name) ? 'da' : /^FAN/i.test(p.name) ? 'fan' : 'link';
+const tsLine = p => { const n = p.gen.streams.filter(s => s.enabled !== false).length, t = p.gen.testset; return `${n} application${n === 1 ? '' : 's'} · ${t.alone && n > 1 ? 'alone, then together' : 'together'}${t.fill ? ', plus fill' : ''} · ${dur(p.gen.duration_s)}${(t.lengths || []).length ? ' (length is a choice)' : ''}`; };
+const kindLine = p => isTestset(p) ? tsLine(p) : `${p.mode === 'mirrored' ? 'Mirrored Bits mode' : TRANSPORT_NAMES[p.transport]} · ${p.mode === 'mirrored' ? (p.transport === 'serial' ? p.serial.baud : p.mirrored.rate_baud) + ' baud · test bit every ' + p.mirrored.trip_every_s + ' s' : p.interval_ms + ' ms'} · ${dur(p.duration_s)} · limit ${p.threshold_ms} ms`;
 function tcardHtml(p, i, list) {
   const nm = esc(p.name);
   return `<div class="pcard" data-act="info" data-id="${p.id}" data-tcard="1" tabindex="0" role="button" aria-label="${nm}: open what this test checks and how it works">
-    <div class="ptop"><h3><button type="button" class="pname" data-act="rename" data-id="${p.id}" title="Tap the name to rename this test" aria-label="Rename">${nm}</button>
-      <span class="tags"><span class="tag ${p.builtin ? 'preset' : ''}">${p.builtin ? 'Built-in' : 'Mine'}</span>${p.edited ? '<span class="tag edited">Edited</span>' : ''}</span></h3>
+    <div class="ptop"><h3>${isTestset(p) ? `<span class="pname ro">${nm}</span>` : `<button type="button" class="pname" data-act="rename" data-id="${p.id}" title="Tap the name to rename this test" aria-label="Rename">${nm}</button>`}
+      <span class="tags">${loadedProfile() && loadedProfile().id === p.id ? '<span class="tag loaded" data-testid="tag-loaded">Loaded</span>' : ''}<span class="tag ${p.builtin ? 'preset' : ''}">${p.builtin ? 'Built-in' : 'Mine'}</span>${p.edited ? '<span class="tag edited">Edited</span>' : ''}</span></h3>
       <details class="more pmenu"><summary aria-label="More actions" title="More actions">⋮</summary><div>
-        <button type="button" class="btn small" data-act="rename" data-id="${p.id}">Rename</button>
+        ${isTestset(p) ? '' : `<button type="button" class="btn small" data-act="rename" data-id="${p.id}">Rename</button>`}
         <button type="button" class="btn small" data-act="dup" data-id="${p.id}">Duplicate</button>
         <button type="button" class="btn small" data-act="exp1" data-id="${p.id}">Export</button>
-        <button type="button" class="btn small" data-act="up" data-id="${p.id}" ${i === 0 ? 'disabled' : ''}>Move up</button>
-        <button type="button" class="btn small" data-act="down" data-id="${p.id}" ${i === list.length - 1 ? 'disabled' : ''}>Move down</button>
+        ${isTestset(p) ? '' : `<button type="button" class="btn small" data-act="up" data-id="${p.id}" ${i === 0 ? 'disabled' : ''}>Move up</button>
+        <button type="button" class="btn small" data-act="down" data-id="${p.id}" ${i === list.length - 1 ? 'disabled' : ''}>Move down</button>`}
         ${p.edited ? `<button type="button" class="btn small" data-act="reset" data-id="${p.id}">Reset to default</button>` : ''}
         ${WIDE.matches ? '' : p.builtin ? `<button type="button" class="btn small" data-act="hide" data-id="${p.id}">Hide this test</button>` : `<button type="button" class="btn small" data-act="del" data-id="${p.id}">Delete</button>`}
       </div></details></div>
     <p>${esc(p.description || describeProfile(p))}</p>
     <div class="meta">${kindLine(p)}</div>
     <div class="acts"><button type="button" class="btn primary" data-act="pick" data-id="${p.id}" title="Open it ready to start: check where it goes, then ▶ Start">▶ Run</button>
-      <button type="button" class="btn pill" data-act="edit" data-id="${p.id}" title="Change this test and save it">Edit</button>
+      ${isTestset(p) && p.builtin ? '' : `<button type="button" class="btn pill" data-act="edit" data-id="${p.id}" title="Change this test and save it">Edit</button>`}
       ${WIDE.matches ? `<button type="button" class="btn desk" data-act="${p.builtin ? 'hide' : 'del'}" data-id="${p.id}">${p.builtin ? 'Hide' : 'Delete'}</button>` : ''}
       <span class="pinfo">ⓘ What this test does</span></div></div>`;
 }
@@ -64,7 +71,7 @@ function drawStep() {
   body.innerHTML = `<div class="listhead"><h1 style="margin:0">Tests</h1>
       <button type="button" class="btn primary big" data-act="create" data-testid="setup-create-custom-test" aria-label="＋ New test" title="Choose the port, the protocol and where to send: one page">＋ New test</button></div>
     <p class="sub">▶ Run opens a test ready to start. Tap a card to read what it checks. ＋ New test builds your own in four rows: Port, Protocol, From → To, Traffic.</p>
-    ${shown.length ? `<div class="grid g3" id="testGrid">${shown.map((p, i) => tcardHtml(p, i, shown)).join('')}</div>` : '<div class="card empty"><p>No tests in your list. Tap <b>＋ New test</b>, or show the hidden ones below.</p></div>'}
+    ${shown.length ? `<div id="testGrid">${GROUPS.map(([k, t]) => { const l = shown.filter(p => groupOf(p) === k); return l.length ? `<h3 class="grp" data-testid="tests-group-${k}">${t}</h3><div class="grid g3">${l.map((p, i) => tcardHtml(p, i, l)).join('')}</div>` : ''; }).join('')}</div>` : '<div class="card empty"><p>No tests in your list. Tap <b>＋ New test</b>, or show the hidden ones below.</p></div>'}
     ${hid.length ? `<details class="hidden-tests card" id="hiddenTests" ${S.wizard.hiddenOpen ? 'open' : ''}><summary>Show hidden tests (${hid.length})</summary>
       ${hid.map(p => `<div class="hrow"><span><b>${esc(p.name)}</b> <span class="muted">· ${p.builtin ? 'built-in' : 'mine'}</span></span><button type="button" class="btn small" data-act="unhide" data-id="${p.id}">Show again</button></div>`).join('')}
       <div class="row" style="margin-top:10px"><button type="button" class="btn small" data-act="restoreAll">Restore all hidden tests</button></div></details>` : ''}
@@ -86,6 +93,10 @@ async function openPage(id, mode) {
   const p = id != null ? S.profiles.find(x => x.id === id) : null;
   if (id != null && !p) { S.wizard.nt = null; return drawStep(); }
   S.wizard.nt = { id, mode }; S.sel = p || null;
+  if (p && isTestset(p)) {                                // a test set: one screen for the applications, their targets, the run and the result
+    try { await renderTestset(body, (t, o) => { if (t === 'tests' || !t) { S.wizard.nt = null; return goNext(t, o); } return goNext(t, o); }, { id }); } catch (e) { S.wizard.nt = null; toast(e.message, true, 7000); drawStep(); }
+    return;
+  }
   try {
     await openNewTest(body, {
       profile: p, mode, extras: EXTRAS,
@@ -99,7 +110,19 @@ async function openPage(id, mode) {
 }
 const create = () => openPage(null, 'new');
 const edit = id => openPage(id, 'edit');
-const pick = id => openPage(id, 'run');
+const pick = id => { setLoaded(id); return openPage(id, 'run'); };
+
+// Start from anywhere: open the test on this screen and press its Start as soon as the checks pass (stops when the checks fail, or the page changes).
+export async function autoRun(id, alive = () => true) {
+  await pick(id);
+  let bad = 0;
+  for (let i = 0; i < 160 && alive(); i++) {
+    const b = $('#main [data-nt=start]'); if (!b) return;
+    if (!b.disabled) { b.click(); return; }
+    bad = $('#startHint.bad') ? bad + 1 : 0; if (bad > 8) return;
+    await new Promise(r => setTimeout(r, 250));
+  }
+}
 
 // ---------------------------------------------------------------- list actions
 async function dup(id) { try { const p = await api(`/profiles/${id}/duplicate`, { method: 'POST' }); await loadProfiles(); S.wizard.flash = p.id; toast(`Made “${p.name}”: your own copy at the end of the list. Tap Edit on it to change it.`, false, 6000); drawStep(); } catch (e) { toast(e.message, true); } }
@@ -131,7 +154,7 @@ async function reset(id) {
   try { const r = await api(`/profiles/${id}/reset`, { method: 'POST' }); await loadProfiles(); S.wizard.flash = id; drawStep(); toast(`“${r.name}” is back to its default.`); } catch (e) { toast(e.message, true, 7000); }
 }
 async function move(id, dir) {
-  const shown = trips().filter(p => !p.hidden), i = shown.findIndex(p => p.id === id), j = i + dir;
+  const me = trips().find(p => p.id === id), shown = trips().filter(p => !p.hidden && me && groupOf(p) === groupOf(me)), i = shown.findIndex(p => p.id === id), j = i + dir;      // Move up / down stay inside the group the test is shown in
   if (i < 0 || j < 0 || j >= shown.length) return;
   const all = trips().map(p => p.id), a = all.indexOf(shown[i].id), b = all.indexOf(shown[j].id);
   [all[a], all[b]] = [all[b], all[a]];
@@ -159,6 +182,12 @@ function rename(id, root, a) {
 }
 // Tapping a test opens a plain-English panel: what it tests, how it works, what you need, what "pass" means, typical use. Built-in tests carry their text in the app (one source, also used by the AI guide).
 export function infoBody(p) {
+  if (isTestset(p)) {
+    const t = p.gen.testset, rows = p.gen.streams.map(s => { const g = s.target || {}; return `<li><b>${esc(s.name)}</b> <span class="muted">${esc([g.max_latency_ms != null ? `latency ≤ ${g.max_latency_ms} ms` : '', g.max_loss_pct != null ? `loss ≤ ${g.max_loss_pct} %` : '', g.max_jitter_ms != null ? `jitter ≤ ${g.max_jitter_ms} ms` : '', g.min_throughput_mbps ? `at least ${g.min_throughput_mbps} Mb/s` : ''].filter(Boolean).join(' · '))}</span></li>`; }).join('');
+    return `<p><span class="tag ${p.builtin ? 'preset' : ''}">${p.builtin ? 'Built-in' : 'Mine'}</span> <span class="muted">${esc(tsLine(p))}</span></p><h3>What it tests</h3><p>${esc(p.description)}</p><h3>The applications and their targets</h3><ul>${rows}</ul>
+      <h3>How it runs</h3><p>${t.alone ? `Each application runs alone for ${t.alone_s} s (not judged), then ` : ''}all of them run together for the length you choose (judged against each target)${t.fill ? `, then once more with ${t.fill_mbps} Mb/s of fill traffic (shown, not judged)` : ''}. One result, one report.</p>
+      <p class="muted">The targets are example values, not from a standard. Edit any of them on the test page.</p>`;
+  }
   const secs = [['what', 'What it tests'], ['how', 'How it works'], ['need', 'What you need'], ['pass_means', 'What “pass” means'], ['typical', 'Typical use']];
   const five = i => secs.map(([k, t]) => `<h3>${t}</h3><p>${esc(i[k])}</p>`).join('');
   const tags = `<p><span class="tag ${p.builtin ? 'preset' : ''}">${p.builtin ? 'Built-in' : 'Mine'}</span> ${p.edited ? '<span class="tag edited">Edited</span> ' : ''}<span class="muted">${esc(kindLine(p))}</span></p>`;

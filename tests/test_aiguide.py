@@ -49,7 +49,7 @@ def test_every_tab_in_the_page_has_a_view_and_a_summary():
 
 def test_new_tab_without_words_fails_the_guide(app_a, monkeypatch):
     app, _ = app_a
-    monkeypatch.setattr(B, "tab_labels", lambda: [("setup", "① Setup"), ("brandnew", "⑦ Brand new")])
+    monkeypatch.setattr(B, "tab_labels", lambda: [("tests", "Tests"), ("brandnew", "⑦ Brand new")])
     with pytest.raises(B.GuideCoverageError, match="brandnew"):
         B.check_coverage(app)
 

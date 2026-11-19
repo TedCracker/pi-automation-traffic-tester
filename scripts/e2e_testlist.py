@@ -92,19 +92,23 @@ try:
             pg = ctx.new_page(); errs = []
             pg.on("pageerror", lambda e, errs=errs: errs.append(str(e)))
             pg.on("console", lambda m, errs=errs: errs.append(m.text) if m.type == "error" and "Failed to load resource" not in m.text else None)
-            pg.goto(f"http://127.0.0.1:{A}/#setup"); pg.wait_for_selector(".pcard"); time.sleep(0.4)
+            pg.goto(f"http://127.0.0.1:{A}/#tests"); pg.wait_for_selector(".pcard"); time.sleep(0.4)
             # ---- version label
-            v = pg.locator("[data-testid=app-version]"); vb = v.bounding_box(); bb = pg.locator("header .brand b").bounding_box()
-            check(f"{tag}version 'v{ver}' (same source as /api/status) in small muted text directly under the logo title, no wrap or overflow",
-                  v.inner_text() == f"v{ver}" and -3 < vb["y"] - (bb["y"] + bb["height"]) < 12 and vb["x"] + vb["width"] <= W and pg.evaluate("document.documentElement.scrollWidth <= innerWidth") and float(v.evaluate("e=>parseFloat(getComputedStyle(e).fontSize)")) < 12.5, f"{v.inner_text()} {vb}")
+            v = pg.locator("[data-testid=app-version]")
+            if v.is_visible():          # wide screens: the version sits at the right of the lamp strip; phones: About is in the footer (the strip has no room)
+                vb = v.bounding_box()
+                check(f"{tag}version 'v{ver}' (same source as /api/status) in small muted text in the lamp strip, no wrap or overflow",
+                      v.inner_text() == f"v{ver}" and vb["x"] + vb["width"] <= W and pg.evaluate("document.documentElement.scrollWidth <= innerWidth") and float(v.evaluate("e=>parseFloat(getComputedStyle(e).fontSize)")) < 12.5, f"{v.inner_text()} {vb}")
+            else:
+                check(f"{tag}version label: on a phone About lives in the footer, no sideways scroll", pg.locator("footer [data-testid=foot-about]").is_visible() and pg.evaluate("document.documentElement.scrollWidth <= innerWidth") and v.inner_text() == f"v{ver}")
             ag = ctx.new_page(); ag.goto(f"http://127.0.0.1:{A}/ai-guide")
             check(f"{tag}the version label is on /ai-guide too", ag.locator("[data-testid=app-version]").inner_text() == f"v{ver}"); ag.close()
             # ---- the list
             nm = names(pg)
-            check(f"{tag}Setup is one list: 9 built-in trip tests (incl. 'DER trip — Mirrored Bits mode'), '＋ Create a new test' at the top", len(nm) == 9 and "DER trip — Mirrored Bits mode" in nm and pg.locator("[data-act=create]").first.is_visible(), nm)
+            check(f"{tag}Setup is one list: 10 built-in trip tests (incl. 'DER trip — Mirrored Bits mode'), '＋ Create a new test' at the top", len(nm) == 10 and "DER trip — Mirrored Bits mode" in nm and pg.locator("[data-act=create]").first.is_visible(), nm)
             shot(pg, f"{o}-list")
             # ---- info sheet
-            card(pg, "DER trip test").locator("p").first.click(); pg.wait_for_selector("[data-testid=info-sheet]")
+            card(pg, "DER trip test").locator(".meta").first.click(); pg.wait_for_selector("[data-testid=info-sheet]")
             txt = pg.inner_text("[data-testid=info-sheet]")
             secs = ["What it tests", "How it works", "What you need", "What “pass” means", "Typical use"]
             check(f"{tag}tapping a card opens the info sheet with all 5 sections and Run this test / Edit", all(s in txt for s in secs) and pg.locator("[data-testid=sheet-run]").is_visible() and pg.locator("[data-testid=sheet-edit]").is_visible(), txt[:150].replace("\n", " "))
@@ -112,7 +116,7 @@ try:
             check(f"{tag}the info sheet fits the screen" + (" (bottom sheet)" if phone else ""), box["x"] >= -1 and box["x"] + box["width"] <= W + 1 and box["y"] + box["height"] <= H + 1 and pg.evaluate("document.documentElement.scrollWidth <= innerWidth"), box)
             shot(pg, f"{o}-info")
             pg.click("[data-testid=sheet-run]"); pg.wait_for_selector("[data-testid=nt-page]", timeout=8000)
-            check(f"{tag}'Run this test' opens it ready to start (New test page, Start bar, check running)", pg.locator("[data-testid=nt-start]").count() == 1 and "DER trip test" in pg.inner_text("[data-testid=nt-page] h1"))
+            check(f"{tag}'Run this test' opens it ready to start (New test page, Start bar, check running)", pg.locator("[data-testid=tb-start]").count() == 1 and "DER trip test" in pg.inner_text("[data-testid=nt-page] h1"))
             # ---- edit a built-in test in place, run it, reset
             pg.reload(); pg.wait_for_selector(".pcard")
             card(pg, "Quick link check").locator(".acts [data-act=edit]").click(); pg.wait_for_selector("[data-testid=nt-page]")
@@ -121,7 +125,7 @@ try:
             pg.click("[data-testid=nt-save]"); pg.fill("[data-testid=nt-save-name]", "Quick check (edited)"); pg.click("[data-testid=sheet-go]"); pg.wait_for_selector(".pcard:has-text('Quick check (edited)')", timeout=8000)
             c = card(pg, "Quick check (edited)")
             plist = http(A, "GET", "/api/profiles"); ed = next((p for p in plist if p["name"] == "Quick check (edited)"), {})
-            check(f"{tag}an edited built-in shows 'Edited', keeps its place, and its default is still in the app", "Edited" in c.inner_text().title() and names(pg).index("Quick check (edited)") == 3 and ed.get("default_name") == "Quick link check" and ed.get("edited"), f"{names(pg)[:5]} {ed.get('default_name')} {ed.get('edited')}")
+            check(f"{tag}an edited built-in shows 'Edited', keeps its place, and its default is still in the app", "Edited" in c.inner_text().title() and names(pg).index("Quick check (edited)") == 6 and ed.get("default_name") == "Quick link check" and ed.get("edited"), f"{names(pg)[:5]} {ed.get('default_name')} {ed.get('edited')}")
             c.locator("summary").click(); check(f"{tag}the ⋮ menu offers Reset to default for it", c.locator("details.more[open] [data-act=reset]").count() == 1); pg.keyboard.press("Escape"); time.sleep(0.2)
             check(f"{tag}Esc closes the ⋮ menu", c.locator("details.more[open]").count() == 0)
             c.locator("[data-act=pick]").click(); pg.wait_for_selector("[data-testid=nt-page]", timeout=15000)      # no other Pi in the list yet: type its address
@@ -129,12 +133,12 @@ try:
                 if not pg.locator("[data-testid=nt-row-ends].open").count(): pg.click("[data-testid=nt-head-ends]")
                 pg.click("[data-testid=nt-type-ip]")
             pg.fill("[data-testid=nt-far-host]", "127.0.0.1"); pg.click("[data-testid=nt-head-traffic]"); pg.click("[data-testid=nt-more] summary"); pg.fill("[data-k='net.port']", str(UDP))
-            pg.wait_for_selector("[data-testid=nt-start]:not([disabled])", timeout=15000); time.sleep(1.2)
-            pg.click("[data-testid=nt-start]"); pg.wait_for_selector("#runBanner", timeout=15000)
+            pg.wait_for_selector("[data-testid=tb-start]:not([disabled])", timeout=15000); time.sleep(1.2)
+            pg.click("[data-testid=tb-start]"); pg.wait_for_selector("#runBanner", timeout=15000)
             ok = wait_run_done(A, 30); time.sleep(0.5)
             run = http(A, "GET", "/api/runs")[0]
             check(f"{tag}the edited built-in test runs (3 s, 45 ms limit) and the result keeps the name used at run time", ok and run["name"] == "Quick check (edited)" and run["verdict"] in ("PASS", "FAIL"), f"{run['name']} {run['verdict']}")
-            pg.click("[data-tab=setup]"); pg.wait_for_selector(".pcard")
+            pg.click("[data-tab=tests]"); pg.wait_for_selector(".pcard")
             menu(pg, "Quick check (edited)", "reset"); pg.wait_for_selector("#mYes"); pg.click("#mYes"); pg.wait_for_selector(".pcard:has(button.pname:text-is('Quick link check'))", timeout=8000)
             q = [p for p in http(A, "GET", "/api/profiles") if p["name"] == "Quick link check"][0]
             check(f"{tag}Reset to default brings back settings, name and the 'Edited' tag goes", q["threshold_ms"] == 60 and q["duration_s"] == 60 and not q["edited"] and "Edited" not in card(pg, "Quick link check").inner_text().title())
@@ -162,27 +166,30 @@ try:
             pg.locator("#toast .toast-act").last.click(); pg.wait_for_selector(".pcard:has-text('My new test')", timeout=6000)
             check(f"{tag}own test: Delete (confirm) is a real delete with an Undo toast that puts it back in the same place", gone and names(pg)[-1] == "My new test")
             # ---- reorder
-            before = names(pg); menu(pg, "My new test", "up"); time.sleep(0.8); mid = names(pg)
+            n0 = names(pg); menu(pg, "My new test", "dup"); time.sleep(0.9); copy = [n for n in names(pg) if n not in n0][0]       # Move up / down work inside a group, so make a second "My tests" entry to move
+            before = names(pg); menu(pg, copy, "up"); time.sleep(0.8); mid = names(pg)
             pg.reload(); pg.wait_for_selector(".pcard"); after = names(pg)
-            check(f"{tag}Move up changes the order and it persists after a reload", mid == after and after.index("My new test") == before.index("My new test") - 1, after[-3:])
+            check(f"{tag}Move up changes the order (inside its group) and it persists after a reload", mid == after and after.index(copy) == before.index(copy) - 1, after[-3:])
+            menu(pg, copy, "del"); pg.wait_for_selector("#mYes"); pg.click("#mYes"); time.sleep(0.6)
             menu(pg, "My new test", "del"); pg.click("#mYes"); time.sleep(0.5)
             # ---- About + banner
-            pg.click("[data-testid=app-version]"); pg.wait_for_selector("[data-testid=whats-new]")
+            pg.click("[data-testid=app-version]" if pg.locator("[data-testid=app-version]").is_visible() else "[data-testid=foot-about]"); pg.wait_for_selector("[data-testid=whats-new]")
             at = pg.inner_text("#main")
-            check(f"{tag}tapping the version opens About: version, this Pi's name/hostname, update status and What's new (newest first)", f"v{ver}" in at and "pi1" in pg.inner_text("[data-testid=about-pi-name]") and not re.search(r"Pi [AB]\b|Responder", pg.inner_text("[data-testid=about-card]")) and "What's new" in at and "Version 1.1.0" in at and at.index(f"Version {ver}") < at.index("Version 1.1.0"), at[:120].replace("\n", " "))
+            check(f"{tag}tapping the version opens About: version, this Pi's name/hostname, update status and What's new (newest first)", f"v{ver}" in at and "pi1" in pg.inner_text("[data-testid=about-pi-name]") and not re.search(r"Pi [AB]\b|Responder", pg.inner_text("[data-testid=about-card]")) and "what's new" in at.lower() and "Version 1.1.0" in at and at.index(f"Version {ver}") < at.index("Version 1.1.0"), at[:120].replace("\n", " "))
             shot(pg, f"{o}-about")
-            pg.click("[data-tab=setup]"); pg.click("[data-testid=top-about]"); pg.wait_for_selector("[data-testid=whats-new]")
-            check(f"{tag}the top bar About link opens it too, no sideways scroll", pg.evaluate("document.documentElement.scrollWidth <= innerWidth"))
+            pg.click("[data-tab=tests]"); pg.click("[data-testid=foot-about]"); pg.wait_for_selector("[data-testid=whats-new]")
+            check(f"{tag}the footer About link opens it too, no sideways scroll", pg.evaluate("document.documentElement.scrollWidth <= innerWidth"))
             pg.evaluate("localStorage.setItem('tt-seen-version','1.0')"); pg.reload(); pg.wait_for_selector("[data-testid=updated-banner]", timeout=8000)
             bt = pg.inner_text("[data-testid=updated-banner]")
-            check(f"{tag}after an update the app shows 'Updated to v{ver} — what's new' once", f"Updated to v{ver}" in bt and "Version 1.1" in bt, bt[:100].replace("\n", " "))
+            check(f"{tag}after an update the app shows 'Updated to v{ver} — what's new' once", f"Updated to v{ver}" in bt and "what's new" in bt and "Version 1.1" in pg.text_content("[data-testid=updated-banner]"), bt[:100].replace("\n", " "))
             shot(pg, f"{o}-updated-banner")
             pg.reload(); pg.wait_for_selector("[data-testid=whats-new]"); time.sleep(0.8)
             check(f"{tag}…and not again after a reload", pg.locator("[data-testid=updated-banner]").count() == 0)
             # ---- auto refresh: live
-            pg.click("[data-tab=run]"); time.sleep(0.8)
-            check(f"{tag}Run shows '● Live' with Refresh and Auto-refresh", "Live" in pg.inner_text("[data-testid=refresh-chip]") and pg.locator("[data-testid=refresh-now]").is_visible() and pg.locator("[data-testid=refresh-auto]").is_checked())
-            ctx.close()
+            rid0 = http(A, "POST", "/api/runs", {"profile": {"name": "live row run", "transport": "udp", "frame": "extended", "net": {"peer_host": "127.0.0.1", "port": UDP}, "duration_s": 12, "interval_ms": 50}})["run_id"]
+            pg.click("[data-tab=tests]"); pg.wait_for_selector("#runBanner", timeout=15000); time.sleep(0.8)
+            check(f"{tag}the live screen keeps the Live / Refresh / Auto-refresh row in the page but draws it only when the live connection is down", "Live" in pg.inner_text("[data-testid=refresh-chip]") and not pg.locator("[data-testid=refresh-now]").is_visible() and pg.locator("[data-testid=refresh-auto]").is_checked())
+            wait_run_done(A, 30); ctx.close()
 
             # ---- auto refresh with the WebSocket blocked: polling keeps Run and Results current
             ctx = br.new_context(viewport={"width": W, "height": H}, is_mobile=touch, has_touch=touch)
@@ -201,8 +208,8 @@ try:
                 pg.wait_for_function("document.querySelector('tr[data-run] .pill.pass, tr[data-run] .pill.fail')", timeout=25000); fin = True
             except Exception: fin = False
             check(f"{tag}…and moves it from RUNNING to its verdict by itself", fin)
-            pg.click("[data-tab=run]"); pg.wait_for_selector("[data-testid=refresh-chip]")
             rid2 = http(A, "POST", "/api/runs", {"profile": {"name": "poll run 2", "transport": "udp", "frame": "extended", "net": {"peer_host": "127.0.0.1", "port": UDP}, "duration_s": 24, "interval_ms": 50}})["run_id"]
+            pg.click("[data-tab=tests]"); pg.wait_for_selector("[data-testid=refresh-chip]", state="attached")
             try:
                 pg.wait_for_selector("#runBanner", timeout=20000); pg.wait_for_function("document.querySelector('#stats') && /[0-9] ms/.test(document.querySelector('#stats').innerText)", timeout=15000); up = True
             except Exception: up = False
@@ -214,7 +221,7 @@ try:
             check(f"{tag}…and shows the finished verdict + 'See full results' without a reload", done)
             pg.click("[data-testid=refresh-now]"); pg.uncheck("[data-testid=refresh-auto]"); time.sleep(0.4)
             check(f"{tag}switching Auto-refresh off shows 'Paused'", "Paused" in pg.inner_text("[data-testid=refresh-chip]"))
-            pg.reload(); pg.wait_for_selector("[data-tab=run]"); pg.click("[data-tab=run]"); pg.wait_for_selector("[data-testid=refresh-auto]")
+            pg.reload(); pg.wait_for_selector("[data-tab=results]"); pg.click("[data-tab=results]"); pg.wait_for_selector("[data-testid=refresh-auto]", state="attached")
             check(f"{tag}…and the choice is remembered in this browser", not pg.locator("[data-testid=refresh-auto]").is_checked() and "Paused" in pg.inner_text("[data-testid=refresh-chip]"))
             shot(pg, f"{o}-refresh")
             ctx.close()
@@ -225,10 +232,10 @@ try:
         ctx = br.new_context(viewport={"width": W, "height": H}, is_mobile=touch, has_touch=touch); pg = ctx.new_page(); errs = []
         pg.on("pageerror", lambda e: errs.append(str(e)))
         pid2 = http(A, "POST", "/api/peers", {"host": f"127.0.0.1:{B}"})["id"]
-        pg.goto(f"http://127.0.0.1:{B}/#setup"); pg.wait_for_selector(".pcard")
+        pg.goto(f"http://127.0.0.1:{B}/#tests"); pg.wait_for_selector(".pcard")
         check("[pi2] Setup shows the same test list as pi1: no Responder card, no 'This Pi is the Responder'", pg.locator("#respCard, #bWizard").count() == 0 and "Responder" not in pg.inner_text("#main") and pg.locator(".pcard").count() >= 9, pg.inner_text("#main")[:80].replace("\n", " "))
         pa = ctx.new_page(); pa.on("pageerror", lambda e: errs.append(str(e)))
-        pa.goto(f"http://127.0.0.1:{A}/#setup"); pa.wait_for_selector(".pcard")
+        pa.goto(f"http://127.0.0.1:{A}/#tests"); pa.wait_for_selector(".pcard")
         card(pa, "DER trip — Mirrored Bits mode").locator(".acts [data-act=edit]").click(); pa.wait_for_selector("[data-testid=nt-page]")
         pa.click("[data-testid=nt-head-port]"); pa.click("[data-testid=nt-port-auto]"); time.sleep(0.4)
         if not pa.locator("[data-testid=nt-row-proto].open").count(): pa.click("[data-testid=nt-head-proto]")
@@ -241,9 +248,9 @@ try:
         check("[portrait] the New test page has Mirrored Bits over UDP: round trip automatic, channel settings under More options, no message-rate field", pa.locator("[data-testid=nt-dir-locked]").count() == 1 and "ROK" in summ and pa.locator("[data-k=ui\\.rate]").count() == 0 and pa.locator("[data-testid=mb-advanced]").count() == 1, summ[:140])
         shot(pa, "mirrored-form")
         pa.click("[data-testid=nt-save]"); pa.fill("[data-testid=nt-save-name]", "MB over UDP"); pa.click("[data-testid=sheet-go]"); pa.wait_for_selector(".pcard:has-text('MB over UDP')", timeout=8000)
-        card(pa, "MB over UDP").locator("[data-act=pick]").click(); pa.wait_for_selector("[data-testid=nt-start]:not([disabled])", timeout=20000)
+        card(pa, "MB over UDP").locator("[data-act=pick]").click(); pa.wait_for_selector("[data-testid=tb-start]:not([disabled])", timeout=20000)
         check("[portrait] the link check for a Mirrored Bits test finds pi2's continuous messages", "answered" in pa.inner_text("[data-testid=nt-bar]"), pa.inner_text("[data-testid=nt-bar]")[:120].replace("\n", " "))
-        pa.click("[data-testid=nt-start]"); pa.wait_for_selector("[data-testid=mb-live] [data-testid=mb-rok]", timeout=15000); time.sleep(3.5)
+        pa.click("[data-testid=tb-start]"); pa.wait_for_selector("[data-testid=mb-live] [data-testid=mb-rok]", timeout=15000); time.sleep(3.5)
         lanes = pa.inner_text("[data-testid=mb-live]")
         check("[portrait] Run shows the live Mirrored Bits view: two end cards (pi1 PROTO A, pi2 PROTO B), two lanes, 8 sent + 8 received squares each, ROK lamps, SimCodec label", "pi1" in lanes and "pi2" in lanes and "PROTO A" in lanes and "PROTO B" in lanes and "not SEL wire-compatible" in lanes and pa.locator("[data-testid=mb-live] .mbsq").count() == 32 and pa.locator("[data-testid=mb-live] .mbrok.ok").count() == 2 and "msg/s" in lanes, lanes[:200].replace("\n", " "))
         shot(pa, "mirrored-run")

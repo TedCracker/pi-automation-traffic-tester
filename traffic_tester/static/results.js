@@ -3,6 +3,7 @@ import { S } from './state.js';
 import { barHtml, bindBar, setRefreshTarget } from './refresh.js';
 import { renderCompare, pickState, ensureCompareCss } from './compare.js';
 import { Job } from './job.js';
+import { tsResultHtml } from './tsresult.js';
 import { radioResultHtml, mountRepeats } from './radioui.js';
 
 let sessions = [], sid = null, plots = [], resRoot = null, runSig = '', curRuns = [];
@@ -207,7 +208,8 @@ async function showRun(id) {
     <div class="grid g2"><div class="card"><h2>Delay over time</h2><div id="rChart" class="chart"></div></div><div class="card"><h2>How delays were spread</h2><div id="rHist"></div></div></div>
     <div class="card"><h2>Per-second summary</h2><div id="iChart" class="chart"></div></div>
     ${mbSection(s, id)}${radioResultHtml(s)}${ow}${idle}${tcp}${goose}`;
-  $('#delRun').onclick = async () => { if (await confirmBox('Delete this test?', 'Its data is removed permanently.', 'Delete', true)) { await api(`/runs/${id}`, { method: 'DELETE' }); S.openRun = null; renderResults($('#main').firstElementChild || $('#main')); } };
+  const delBtn = $('#delRun'); if (!delBtn) return;      // the list was redrawn while this opened: the next showRun fills it
+  delBtn.onclick = async () => { if (await confirmBox('Delete this test?', 'Its data is removed permanently.', 'Delete', true)) { await api(`/runs/${id}`, { method: 'DELETE' }); S.openRun = null; renderResults($('#main').firstElementChild || $('#main')); } };
   $$('[data-open-run]', box).forEach(b => b.onclick = () => { S.openRun = +b.dataset.openRun; showRun(S.openRun); window.scrollTo({ top: 0 }); });
   bindExtras(box, r);
   if (s.rtt_ms) charts(id, thr, r.intervals, s.marks);
@@ -316,7 +318,8 @@ async function showGen(box, r, id) {
   const pairTbl = pairs.length ? `<div class="card" data-testid="gen-pairs"><h2>Per pair of Pis</h2><div class="scroll"><table><thead><tr><th>From → to</th><th>Streams</th><th>Sent</th><th>Received</th><th>Lost</th><th>Sent Mb/s</th><th>Received Mb/s</th><th>Jitter ${tip('jitter')}</th><th>Delay typical / p99 / slowest</th></tr></thead><tbody>
     ${pairs.map(x => `<tr data-testid="gen-pair"><td><b>${esc(x.src)} → ${esc(x.dst)}</b></td><td>${x.streams}</td><td>${num(x.tx_pkts)}</td><td>${num(x.rx_pkts)}</td><td ${x.lost ? 'style="color:var(--fail);font-weight:700"' : ''}>${num(x.lost)} (${pct(x.loss_pct)})</td><td>${x.tx_mbps}</td><td>${x.rx_mbps}</td><td>${ms(x.jitter_ms)}</td><td>${x.lat_ms ? ms(x.lat_ms.p50) + ' / ' + ms(x.lat_ms.p99) + ' / ' + ms(x.lat_ms.max) : '–'}</td></tr>`).join('')}</tbody></table></div></div>` : '';
   const rows = (s.streams || []).map(x => `<tr><td><b>${esc(x.name)}</b>${x.warnings.map(w => `<br><small style="color:var(--warn)">${esc(w)}</small>`).join('')}</td><td>${esc(x.type.toUpperCase())}<br><small class="muted">${esc(x.src || '')} → ${esc(x.dst || '')}</small></td><td>${esc(x.size)}</td><td>${x.tx.mbps}</td><td>${x.rx.mbps}</td><td>${num(Math.round(x.rx.pps))}</td><td ${x.lost ? 'style="color:var(--fail);font-weight:700"' : ''}>${pct(x.loss_pct)}</td><td>${x.lat_ms ? ms(x.lat_ms.p50) + ' / ' + ms(x.lat_ms.p99) + ' / ' + ms(x.lat_ms.max) : '–'}</td><td>${ms(x.jitter_ms)}</td><td>${x.rtt_ms ? ms(x.rtt_ms.avg) : '–'}</td><td>${x.rx.dup + x.rx.ooo ? `${x.rx.dup} dup · ${x.rx.ooo} reordered` : '–'}</td></tr>`).join('');
-  box.innerHTML = `${banner}${testerLine(s.tester)}${marksLine(s)}${vsLine(r)}${Job.block(r.job)}${pathNote(s)}${s.steps ? '<div id="stepsRes"></div>' : ''}${cards}${clk}${pairTbl}
+  const tsBlock = s.testset && v ? tsResultHtml(s, { job: r.job, runId: id, name: p.name, when: when(r.started_at), compare: false }) : '';      // a test set: its own result block (verdict, measured against target, alone then together, report)
+  box.innerHTML = `${tsBlock || banner}${testerLine(s.tester)}${marksLine(s)}${vsLine(r)}${tsBlock ? '' : Job.block(r.job)}${pathNote(s)}${s.steps ? '<div id="stepsRes"></div>' : ''}${cards}${clk}${pairTbl}
     <div class="card"><h2>Streams</h2><div class="scroll"><table><thead><tr><th>Stream</th><th>Type</th><th>Size</th><th>Sent Mb/s</th><th>Received Mb/s</th><th>Packets/s</th><th>Lost</th><th>Delay typical / p99 / slowest</th><th>Jitter ${tip('jitter')}</th><th>Round trip</th><th>Duplicates / order</th></tr></thead><tbody>${rows}</tbody></table></div></div>
     <div class="grid g2"><div class="card"><h2>Throughput per second</h2><div id="gr1" class="chart"></div></div><div class="card"><h2>Delay and jitter per second</h2><div id="gr2" class="chart"></div></div></div>
     <div class="card"><h2>Export</h2><div class="row">${s.steps ? `<a class="btn small" href="/api/runs/${id}/export.csv?kind=steps" download data-testid="steps-csv">Steps (CSV)</a>` : ''}<a class="btn small" href="/api/runs/${id}/export.csv?kind=gen" download>Per second (CSV)</a><a class="btn small" href="/api/runs/${id}/export.json" download>Everything (JSON)</a><a class="btn small" href="/api/report.pdf?run_ids=${id}" download>📄 PDF report</a>${cmpBtns(r)}<button class="btn small ghost" id="delRun">Delete this test</button></div>
@@ -350,15 +353,18 @@ async function showSniff(box, r, id) {
   const talk = (a.top_talkers || []).length ? `<div class="card"><h2>Top talkers</h2>${tbl(['Source → destination', 'Packets', 'Data'], a.top_talkers.map(t => `<tr><td>${esc(t.pair)}</td><td>${num(t.packets)}</td><td>${kb(t.bytes)}</td></tr>`))}</div>` : '';
   const ind = (a.dnp3_frames || a.modbus_frames) ? `<div class="card"><h2>DNP3 and Modbus</h2><div class="grid g4">${card('DNP3 frames', num(a.dnp3_frames))}${card('Modbus frames', num(a.modbus_frames))}${card('CRC ok', num(a.crc_ok), '', 'good')}${card('CRC failed', num(a.crc_failures), '', a.crc_failures ? 'bad' : 'good')}</div>
     ${Object.keys(a.functions || {}).length ? tbl(['Function', 'Frames'], Object.entries(a.functions).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${num(v)}</td></tr>`)) : ''}</div>` : '';
+  const other = Object.entries(a.decoded || {}).filter(([k]) => !/^(DNP3|Modbus)/.test(k));
+  const dec = other.length ? `<div class="card"><h2>Decoded protocols</h2>${tbl(['Protocol', 'Frames'], other.map(([k, v]) => `<tr><td><b>${esc(k)}</b></td><td>${num(v)}</td></tr>`))}</div>` : '';
   const wifi = (a.wifi_networks || []).length ? `<div class="card"><h2>Wi-Fi networks heard</h2>${tbl(['Network (SSID)', 'BSSID', 'Channel', 'Best signal', 'Beacons'], a.wifi_networks.map(n => `<tr><td>${esc(n.ssid || '(hidden)')}</td><td>${esc(n.bssid)}</td><td>${n.channel ?? '–'}</td><td>${n.signal != null ? n.signal + ' dBm' : '–'}</td><td>${n.beacons}</td></tr>`))}</div>` : '';
   const files = `<div class="card"><h2>Files</h2>${tbl(['File', 'Size', ''], (s.files || []).map(f => `<tr><td>${esc(f.name)}</td><td>${kb(f.bytes)}</td><td><a class="btn small" href="/api/runs/${id}/capture/${encodeURIComponent(f.name)}" download>⤓ Download</a></td></tr>`))}
     <p class="muted">Stored in ${esc(s.location || '')}. Open the .pcapng files in Wireshark. ${esc(s.ring_note || '')}</p>
     ${s.serial ? `<p class="muted">${esc(s.serial.timestamp_note)}</p>` : ''}${a.truncated ? '<p class="muted">The summary covers only the first part of a very large capture.</p>' : ''}
-    <div class="row"><button class="btn small" id="toUsb">💾 Copy to USB drive</button><a class="btn small" href="/api/runs/${id}/export.json" download>Summary (JSON)</a><a class="btn small" href="/api/report.pdf?run_ids=${id}" download>📄 PDF report</a><button class="btn small ghost" id="delRun">Delete this capture</button></div></div>`;
+    <div class="row"><button class="btn small primary" id="toWb" data-testid="result-open-wb">Open in the sniffer workbench</button><button class="btn small" id="toUsb">💾 Copy to USB drive</button><a class="btn small" href="/api/runs/${id}/export.json" download>Summary (JSON)</a><a class="btn small" href="/api/report.pdf?run_ids=${id}" download>📄 PDF report</a><button class="btn small ghost" id="delRun">Delete this capture</button></div></div>`;
   const lost = s.engine && s.engine.kernel_dropped > 0 ? `<div class="check warn" data-testid="capture-lost"><div class="ic">!</div><div><b>The capture is not complete: the system dropped ${num(s.engine.kernel_dropped)} packets.</b> The Pi could not save them fast enough. Capture with a filter, a short snap length (headers only), or to a USB drive.</div></div>` : '';
   const eng = (s.engine ? `<p class="muted">Capture engine: ${esc(s.engine.engine)}${s.engine.kernel_dropped != null ? ` · packets the system dropped: ${s.engine.kernel_dropped}` : ''}.</p>` : '');
-  box.innerHTML = `${banner}${lost}${Job.block(r.job)}${cards}${prot}${talk}${ind}${wifi}${files}${eng}`;
+  box.innerHTML = `${banner}${lost}${Job.block(r.job)}${cards}${prot}${talk}${ind}${dec}${wifi}${files}${eng}`;
   bindExtras(box, r);
+  $('#toWb').onclick = () => { S.openCapture = id; location.hash = '#sniffer'; };
   $('#toUsb').onclick = async () => { try { const x = await api(`/runs/${id}/capture/usb`, { method: 'POST' }); toast(`Copied ${x.files} file(s) to ${x.path}`); } catch (e) { toast(e.message, true, 7000); } };
   $('#delRun').onclick = async () => { if (await confirmBox('Delete this capture?', 'The record is removed. The capture files stay on the storage.', 'Delete', true)) { await api(`/runs/${id}`, { method: 'DELETE' }); S.openRun = null; renderResults($('#main').firstElementChild || $('#main')); } };
 }

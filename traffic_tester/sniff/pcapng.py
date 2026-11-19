@@ -123,6 +123,13 @@ class RingWriter:
                 except OSError:
                     pass
 
+    def flush(self) -> None:
+        if self.w and not self.w.f.closed:
+            try:
+                self.w.f.flush()
+            except (OSError, ValueError):
+                pass
+
     def close(self) -> None:
         if self.w:
             self.w.close()

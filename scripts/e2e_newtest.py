@@ -46,7 +46,7 @@ def wait_done(port, secs=40):
 
 
 def open_new(pg):
-    pg.goto(f"http://127.0.0.1:{PORTS['pi1']}/#setup"); pg.wait_for_selector("[data-testid=setup-create-custom-test]")
+    pg.goto(f"http://127.0.0.1:{PORTS['pi1']}/#home"); pg.wait_for_selector("[data-testid=home-links]"); pg.goto(f"http://127.0.0.1:{PORTS['pi1']}/#tests"); pg.wait_for_selector("[data-testid=setup-create-custom-test]")
     pg.click("[data-testid=setup-create-custom-test]"); pg.wait_for_selector("[data-testid=nt-page]"); pg.wait_for_timeout(600)
 
 
@@ -59,7 +59,7 @@ def traffic(pg, secs, port=None, rate_ms=20):
 
 
 def ready(pg, secs=15):
-    pg.wait_for_function("() => { const b = document.querySelector('[data-testid=nt-start]'); return b && !b.disabled; }", timeout=secs * 1000)
+    pg.wait_for_function("() => { const b = document.querySelector('[data-testid=tb-start]'); return b && !b.disabled; }", timeout=secs * 1000)
 
 
 def run_size(pw, label, w, h):
@@ -69,7 +69,7 @@ def run_size(pw, label, w, h):
     base = 18700 + (0 if label == "phone" else 50)
 
     # -- the list
-    pg.goto(f"http://127.0.0.1:{PORTS['pi1']}/#setup"); pg.wait_for_selector(".pcard")
+    pg.goto(f"http://127.0.0.1:{PORTS['pi1']}/#tests"); pg.wait_for_selector(".pcard")
     check(f"{label}: Setup is the list of tests with ＋ New test", pg.locator(".pcard").count() > 0 and pg.locator("[data-testid=setup-create-custom-test]").is_visible(), pg.locator("h1").first.inner_text())
     check(f"{label}: no numbered wizard on Setup", pg.locator("#stepper").count() == 0)
     shot("list")
@@ -87,8 +87,8 @@ def run_size(pw, label, w, h):
     body = pg.inner_text("[data-testid=nt-page]")
     check(f"{label}: no 'two Pis' wording", "two Pis" not in body and "2 Pis" not in body)
     shot("new-1to1")
-    pg.click("[data-testid=nt-start]"); pg.wait_for_selector("#runBanner"); pg.wait_for_timeout(2000)
-    pg.click("[data-testid=run-mark]"); pg.fill("[data-testid=run-mark-name]", "antenna moved"); pg.click("[data-testid=sheet-go]"); pg.wait_for_timeout(1500)
+    pg.click("[data-testid=tb-start]"); pg.wait_for_selector("#runBanner"); pg.wait_for_timeout(2000)
+    pg.click("[data-testid=tb-mark]"); pg.fill("[data-testid=run-mark-name]", "antenna moved"); pg.click("[data-testid=sheet-go]"); pg.wait_for_timeout(1500)
     check(f"{label}: ⚑ Mark gives Since mark / Whole test", pg.locator("[data-testid=run-since-mark]").count() == 1 and pg.locator("[data-testid=run-since-whole]").count() == 1)
     check(f"{label}: tester lamp line shown", pg.locator("[data-testid=run-lamp] .tlamp").count() == 1, pg.inner_text("[data-testid=run-lamp]"))
     shot("run-1to1")
@@ -102,7 +102,7 @@ def run_size(pw, label, w, h):
     # -- 1 -> 1 one way
     open_new(pg); pg.check("[data-testid=nt-far-pi2]"); pg.click("[data-testid=nt-dir-one_way]"); traffic(pg, 4, base + 2); ready(pg)
     check(f"{label}: one way sentence", "one way" in pg.inner_text("[data-testid=nt-sentence]"))
-    pg.click("[data-testid=nt-start]"); pg.wait_for_selector("#runBanner"); wait_done(PORTS["pi1"]); pg.wait_for_timeout(1500)
+    pg.click("[data-testid=tb-start]"); pg.wait_for_selector("#runBanner"); wait_done(PORTS["pi1"]); pg.wait_for_timeout(1500)
     ban = pg.inner_text("#runBanner")
     check(f"{label}: 1->1 one way PASS", "PASS" in ban, ban)
 
@@ -115,7 +115,7 @@ def run_size(pw, label, w, h):
     s = pg.inner_text("[data-testid=nt-sentence]")
     check(f"{label}: 1->2 sentence names both and 2 links", "pi2 and pi3" in s and "2 links" in s, s)
     shot("new-1to2")
-    pg.click("[data-testid=nt-start]"); pg.wait_for_selector("[data-testid=run-links]", timeout=15000); pg.wait_for_timeout(2500)
+    pg.click("[data-testid=tb-start]"); pg.wait_for_selector("[data-testid=run-links]", timeout=15000); pg.wait_for_timeout(2500)
     rows = pg.locator("[data-testid=run-links] tr[data-leg]").count()
     check(f"{label}: Run shows ONE table with 2 links", rows == 2 and pg.locator("[data-testid=run-links]").count() == 1, pg.inner_text("[data-testid=run-links-banner]"))
     pg.click("[data-testid=run-links] tr[data-leg='1']"); pg.wait_for_timeout(800)

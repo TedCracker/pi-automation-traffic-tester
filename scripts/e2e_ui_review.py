@@ -51,7 +51,7 @@ try:
             pg.on("pageerror", lambda e: errs.append(str(e)))
             pg.on("console", lambda m: errs.append(m.text) if m.type == "error" and "Failed to load resource" not in m.text else None)
             pg.on("response", lambda r: errs.append(f"{r.status} {r.request.method} {r.url.split('/', 3)[-1]}") if r.status >= 400 else None)    # the normal paths must not produce a single failed request
-            pg.goto(f"http://127.0.0.1:{port}/"); pg.wait_for_selector("#tabs [aria-selected=true]")
+            pg.goto(f"http://127.0.0.1:{port}/#tests"); pg.wait_for_selector("#tabs [aria-selected=true]")
             return pg
 
         # ---------------------------------------------------------------- pi2: the same app, nothing to pair
@@ -70,39 +70,39 @@ try:
         vis = a.evaluate("(() => { const r = document.querySelector('#themeBtn').getBoundingClientRect(); return r.right <= window.innerWidth && r.left >= 0; })()")
         check("[pi1] header fits a 1280 px laptop screen: no sideways scroll, theme button on screen", over <= 0 and vis, f"overflow={over}px themeVisible={vis}")
         tabs = a.eval_on_selector_all("#tabs button", "els => els.map(e => e.textContent.trim())")
-        check("[pi1] six plain tabs (Monitor is part of Run)", tabs == ["Setup", "Run", "Results", "Generator", "Sniffer", "Settings"], tabs)
-        a.click("[data-tab=results]"); a.wait_for_selector("[data-tab=results][aria-selected=true]"); a.click("[data-tab=settings]"); a.wait_for_selector("[data-tab=settings][aria-selected=true]")
+        check("[pi1] five tabs and Setup (Home · Tests · Generator · Sniffer · Results, Setup at the foot of the rail)", tabs == ["Home", "Tests", "Generator", "Sniffer", "Results", "Setup"], tabs)
+        a.click("[data-tab=results]"); a.wait_for_selector("[data-tab=results][aria-selected=true]"); a.click("[data-tab=config] >> visible=true"); a.wait_for_selector("[data-tab=config][aria-selected=true]")
         a.go_back(); a.wait_for_selector("[data-tab=results][aria-selected=true]", timeout=4000)
         check("[pi1] browser Back returns to the previous screen", a.get_attribute("[data-tab=results]", "aria-selected") == "true")
-        a.goto(f"http://127.0.0.1:{A}/#monitor"); a.reload(); a.wait_for_selector("[data-tab=run][aria-selected=true]")
+        a.goto(f"http://127.0.0.1:{A}/#monitor"); a.reload(); a.wait_for_selector("[data-tab=tests][aria-selected=true]")
         check("[pi1] an old #monitor link opens the Run screen", True)
 
         # ---------------------------------------------------------------- Pi A: run a preset in 2 clicks (+ the address, typed once)
-        a.click("[data-tab=setup]"); a.wait_for_selector(".pcard")
+        a.click("[data-tab=tests]"); a.wait_for_selector(".pcard")
         clicks = 0
         a.click(".pcard:has-text('Quick link check') >> nth=0 >> [data-act=pick]"); clicks += 1
         a.wait_for_selector("[data-testid=nt-page]")
-        check("[pi1] ▶ Run opens the test on one page (Port, Protocol, From → To, Traffic) with the Start bar, no numbered wizard", a.locator(".ntrow").count() == 4 and a.locator(".step").count() == 0 and a.locator("[data-testid=nt-start]").count() == 1)
+        check("[pi1] ▶ Run opens the test on one page (Port, Protocol, From → To, Traffic) with the Start bar, no numbered wizard", a.locator(".ntrow").count() == 4 and a.locator(".step").count() == 0 and a.locator("[data-testid=tb-start]").count() == 1)
         a.wait_for_selector("[data-testid=nt-hint].bad", timeout=10000)
-        check("[pi1] with no far end the check says what is missing and Start is disabled", a.is_disabled("[data-testid=nt-start]") and "where to send" in a.inner_text("[data-testid=nt-bar]").lower(), a.inner_text("[data-testid=nt-bar]")[:120].replace("\n", " "))
+        check("[pi1] with no far end the check says what is missing and Start is disabled", a.is_disabled("[data-testid=tb-start]") and "where to send" in a.inner_text("[data-testid=nt-bar]").lower(), a.inner_text("[data-testid=nt-bar]")[:120].replace("\n", " "))
         if not a.locator("[data-testid=nt-far-host]").count(): a.click("[data-testid=nt-type-ip]")
         a.click("[data-testid=nt-head-traffic]"); a.click("[data-testid=nt-more] summary")
         a.fill("[data-k='net.port']", str(UDP)); a.fill("[data-k='ui.len']", "4"); a.select_option("[data-k='ui.lenUnit']", "seconds")
         a.fill("[data-k='threshold_ms']", "35"); a.fill("[data-k='timeout_ms']", "300")
         a.type("[data-testid=nt-far-host]", "127.0.0.1")           # typed, not "changed": the check must start by itself
-        a.wait_for_selector("[data-testid=nt-checks] .ntck.ok", timeout=10000); a.wait_for_selector("[data-testid=nt-start]:not([disabled])", timeout=10000)
-        check("[pi1] typing the address runs the link check by itself and enables Start", a.is_enabled("[data-testid=nt-start]"), a.inner_text("[data-testid=nt-bar]")[:120].replace("\n", " "))
-        a.click("[data-testid=nt-start]"); clicks += 1
-        a.wait_for_selector("#runBanner .banner.run", timeout=8000)
-        check("[pi1] run a preset: 2 clicks (▶ Run, ▶ Start) once the far end is known", clicks == 2 and a.get_attribute("[data-tab=run]", "aria-selected") == "true", f"clicks={clicks}")
+        a.wait_for_selector("[data-testid=nt-checks] .ntck.ok", timeout=10000); a.wait_for_selector("[data-testid=tb-start]:not([disabled])", timeout=10000)
+        check("[pi1] typing the address runs the link check by itself and enables Start", a.is_enabled("[data-testid=tb-start]"), a.inner_text("[data-testid=nt-bar]")[:120].replace("\n", " "))
+        a.click("[data-testid=tb-start]"); clicks += 1
+        a.wait_for_selector("#runBanner", timeout=8000)
+        check("[pi1] run a preset: 2 clicks (▶ Run, ▶ Start) once the far end is known", clicks == 2 and a.get_attribute("[data-tab=tests]", "aria-selected") == "true", f"clicks={clicks}")
         check("[pi1] the five number tiles are on the Run screen at once (placeholders before the first message)", a.locator("#stats .stat").count() == 5, a.locator("#stats .stat").count())
         a.wait_for_selector("#chart canvas"); a.wait_for_selector("#bits")
         check("[pi1] the Run screen shows numbers, link diagram, live chart and message bits together", all(vis4 := [a.is_visible(q) for q in ("#stats", "#wire", "#chart canvas", "#bits")]), dict(zip(("stats", "wire", "chart", "bits"), vis4)))
         # bug: a page opened mid-run drew the limit line at 60 ms whatever the test's limit was
-        a2 = page(A); a2.wait_for_selector("#runBanner .banner.run", timeout=6000)
+        a2 = page(A); a2.wait_for_selector("#runBanner", timeout=6000)
         thr = a2.evaluate("import('./state.js').then(m => m.S.live.thr)")
         check("[pi1] a page opened mid-run lands on Run and uses the test's own limit (35 ms, not 60)", thr == 35, f"thr={thr}")
-        check("[pi1] the Run tab shows a 'running' dot on a freshly opened page", a2.locator("[data-tab=run] .live").count() == 1)
+        check("[pi1] the Run tab shows a 'running' dot on a freshly opened page", a2.locator("[data-tab=tests] .live").count() == 1)
         a2.close()
         a.wait_for_selector("#runBanner .banner.pass, #runBanner .banner.fail", timeout=30000)
         check("[pi1] read the result: verdict appears on the same screen with no click", a.inner_text("#runBanner .big").strip() in ("✓ PASS", "✕ FAIL"), a.inner_text("#runBanner")[:100].replace("\n", " "))
@@ -111,7 +111,7 @@ try:
         pdf = open(dl.value.path(), "rb").read(5)
         check("[pi1] export: PDF report is 1 click from the finished run", pdf == b"%PDF-", pdf)
         runs0 = len(http(A, "GET", "/api/runs"))
-        a.click("#again"); a.wait_for_selector("#runBanner .banner.run", timeout=8000)
+        a.click("#again"); a.wait_for_selector("#runBanner", timeout=8000)
         runs1 = len(http(A, "GET", "/api/runs"))
         check("[pi1] 'Run again' repeats the same test in 1 click", runs1 == runs0 + 1 and http(A, "GET", "/api/runs")[0]["profile"]["threshold_ms"] == 35, f"runs {runs0} -> {runs1}")
         wait_idle(A); a.wait_for_selector("#seeRes", timeout=15000)
@@ -130,7 +130,7 @@ try:
         check("[pi1] Results: rarely used session tools (Rename, Clear) are under 'More'", a.is_visible("#sRen") and a.is_visible("#sClr"))
         a.click("h2 >> nth=0", force=True) if a.locator("h2").count() else None
         # the address typed once is remembered for the next test
-        a.click("[data-tab=setup]"); a.wait_for_selector(".pcard"); a.click(".pcard:has-text('DER trip test (IP)') >> nth=0 >> [data-act=pick]")
+        a.click("[data-tab=tests]"); a.wait_for_selector(".pcard"); a.click(".pcard:has-text('DER trip test (IP)') >> nth=0 >> [data-act=pick]")
         a.wait_for_selector("[data-testid=nt-page]")
         if not a.locator("[data-testid=nt-far-host]").count(): a.click("[data-testid=nt-head-ends]")
         a.wait_for_selector("[data-testid=nt-far-host]", timeout=5000)
@@ -167,11 +167,11 @@ try:
         # ---------------------------------------------------------------- phone
         m = page(A, 390, 844, "dark", device_scale_factor=2)
         over = m.evaluate("document.documentElement.scrollWidth - window.innerWidth")
-        m.click("[data-tab=settings]"); m.wait_for_selector("[data-tab=settings][aria-selected=true]")
-        check("[phone 390 px] no sideways scroll; every tab reachable in the tab strip", over <= 0 and m.get_attribute("[data-tab=settings]", "aria-selected") == "true", f"overflow={over}px")
-        m.click("[data-tab=setup]"); m.wait_for_selector(".pcard"); m.click(".pcard:has-text('Quick link check') >> nth=0 >> [data-act=pick]"); m.wait_for_selector("[data-testid=nt-start]")
-        box = m.evaluate("(() => { const r = document.querySelector('[data-testid=nt-start]').getBoundingClientRect(); return [r.left, r.right, window.innerWidth]; })()")
-        check("[phone 390 px] the Start button is full width and on screen", box[0] >= 0 and box[1] <= box[2] and box[1] - box[0] > 250, box)
+        m.click("[data-tab=config] >> visible=true"); m.wait_for_selector("[data-tab=config][aria-selected=true]")
+        check("[phone 390 px] no sideways scroll; every tab reachable in the tab strip", over <= 0 and m.get_attribute("[data-tab=config] >> visible=true", "aria-selected") == "true", f"overflow={over}px")
+        m.click("[data-tab=tests]"); m.wait_for_selector(".pcard"); m.click(".pcard:has-text('Quick link check') >> nth=0 >> [data-act=pick]"); m.wait_for_selector("[data-testid=tb-start]")
+        box = m.evaluate("(() => { const r = document.querySelector('[data-testid=tb-start]').getBoundingClientRect(); return [r.left, r.right, window.innerWidth]; })()")
+        check("[phone 390 px] START (transport bar, at the thumb) is on screen and wide enough for a gloved tap", box[0] >= 0 and box[1] <= box[2] and box[1] - box[0] >= 96, box)
         check("no browser console or page errors during the whole run", not errs, errs[:3])
         br.close()
 finally:

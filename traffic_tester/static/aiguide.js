@@ -72,9 +72,10 @@ export function annotate(root = document) {
 
 function schedule() { if (scheduled) return; scheduled = true; queueMicrotask(() => { scheduled = false; annotate(); }); }
 
-export function setScreen(t) {
-  screen = t; document.documentElement.dataset.screen = t; annotate();
-  const el = document.getElementById('aiScreen'); if (el && data && data.screens && data.screens[t]) el.textContent = data.screens[t];
+// `t` = the scope that prefixes generated ids (kept from before the shell change: setup = test list, run = live screen, settings = Setup pages); `key` = the tab, for the one-line summary.
+export function setScreen(t, key = t) {
+  screen = t; document.documentElement.dataset.screen = key; annotate();
+  const el = document.getElementById('aiScreen'); if (el && data && data.screens && data.screens[key]) el.textContent = data.screens[key];
   refreshLive();
 }
 

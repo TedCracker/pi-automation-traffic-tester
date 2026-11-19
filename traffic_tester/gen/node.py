@@ -196,6 +196,7 @@ class Sender(threading.Thread):
         self.sock: Optional[socket.socket] = None
         self.error: Optional[str] = None
         self.done = threading.Event()
+        self.paused = threading.Event()                  # a stream switched off during the run: nothing is sent while this is set
         self.vlan = bool(cfg.get("vlan")) and cfg["type"] == "l2"
         sz = cfg["size"]
         self.sizes = P.size_table(sz["mode"], sz.get("size", 64), sz.get("min", 64), sz.get("max", 1518), cfg.get("seed", 1), cfg["type"], self.vlan)
@@ -277,6 +278,10 @@ class Sender(threading.Thread):
                     break
                 if limit is not None and seq >= limit:
                     break
+                if self.paused.is_set():                   # switched off: stay quiet, and do not burst to catch up when it is switched on again
+                    time.sleep(0.05)
+                    nxt = time.perf_counter()
+                    continue
                 todo = round_n if limit is None else min(round_n, limit - seq)
                 while todo > 0:
                     n = min(self.batch_n, todo)
@@ -673,6 +678,15 @@ class Node:
 
     def errors(self) -> List[str]:
         return [e for e in [s.error for s in self.senders] + [r.error for r in self.rxsockets.values()] if e]
+
+    def set_stream_on(self, stream_id: int, on: bool) -> bool:
+        """Switch one stream of this Pi's senders off or on during the run (False = this Pi does not send that stream)."""
+        with self.lock:
+            for s in self.senders:
+                if s.cfg["id"] == stream_id:
+                    (s.paused.clear if on else s.paused.set)()
+                    return True
+        return False
 
     def stop_senders(self) -> None:
         """Stop only the senders; the receivers keep listening until stop()."""

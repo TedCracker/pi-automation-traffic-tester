@@ -15,7 +15,7 @@ from typing import Optional
 from . import engine, factory, health, marks as MK, mbrun, orchestrate as OR, plan as PL, profiles as P, radio as RADIO, system
 from .reflector import Busy as PortBusy
 from .remote import RemoteTester
-from .gen import node as gnode, run as grun
+from .gen import node as gnode, run as grun, testset as gts
 from .sniff import session as ssession
 from .store import Store
 
@@ -191,6 +191,8 @@ class RunManager:
                 t = ssession.SnifferRun(profile, os.path.join(self.store.data_dir, "captures", f"run-{rid}"), emit)
                 self.sniff = t
                 return t
+            if gts.is_testset(profile):
+                return gts.TestSetRun(profile, self.gen_node, emit, on_interval, services=self.services)
             return grun.GeneratorRun(profile, self.gen_node, emit, on_interval, services=self.services)
         self._launch(leg, build, netem=None, controller=controller)
         self._watch()
@@ -489,6 +491,20 @@ class RunManager:
                 if l.tester is not None and l.thread is not None and l.thread.is_alive():
                     l.tester.stop()
 
+    def _gen_tester(self):
+        for l in self.legs:
+            if l.tester is not None and hasattr(l.tester, "set_stream") and l.thread is not None and l.thread.is_alive():
+                return l.tester
+        raise Busy("No generator test is running.")
+
+    def gen_stream(self, i: int, on: bool) -> None:
+        """Generator test: switch stream number i off or on while it runs."""
+        self._gen_tester().set_stream(i, on)
+
+    def gen_clear(self) -> None:
+        """Generator test: zero the live counters (the stored result keeps the whole test)."""
+        self._gen_tester().clear()
+
     def wait(self, timeout=None):
         for l in self.legs:
             if l.thread:
@@ -497,7 +513,8 @@ class RunManager:
     def status(self) -> dict:
         p = self.profile or {}
         d = {"running": self.busy(), "run_id": self.run_id, "profile_name": p.get("name"), "kind": p.get("kind", "trip"),
-             "threshold_ms": p.get("threshold_ms"), "mode": p.get("mode"), "state": self.last_state, "phase": self.state}
+             "threshold_ms": p.get("threshold_ms"), "mode": p.get("mode"), "state": self.last_state, "phase": self.state,
+             "testset": bool(gts.is_testset(p)) if p else False}
         if len(self.legs) > 1:
             d["legs"] = [{"index": l.idx, "run_id": l.rid, "label": l.leg.label if l.leg else "", "running": bool(l.thread and l.thread.is_alive()),
                           "state": l.state, "status": l.status, "tester": l.leg.tester.label() if l.leg else "", "reflector": l.leg.reflector.label() if l.leg else "",

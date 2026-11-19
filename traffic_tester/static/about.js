@@ -21,7 +21,7 @@ export async function renderAbout(root) {
   const u = a.update || {};
   const checked = u.checked ? new Date(u.checked * 1000).toLocaleString() : '';
   const upd = u.newest
-    ? (u.newer ? `<b>Version ${esc(u.newest)} is available.</b> <a href="#settings" data-testid="about-open-update">Open Settings → Software update to install it</a>.` : `You have the newest version${u.newest !== a.version ? ` (the channel offers ${esc(u.newest)})` : ''}.`)
+    ? (u.newer ? `<b>Version ${esc(u.newest)} is available.</b> <a href="#config/update" data-testid="about-open-update">Open Setup → Software update to install it</a>.` : `You have the newest version${u.newest !== a.version ? ` (the channel offers ${esc(u.newest)})` : ''}.`)
     : 'Not checked yet.';
   localStorage.setItem(SEEN, a.version);
   root.innerHTML = `<h1>About</h1>
@@ -48,9 +48,9 @@ export async function maybeUpdatedBanner(status) {
   const news = a.changelog.filter(e => cmp(e.version, from) > 0 && cmp(e.version, status.version) <= 0);
   localStorage.setItem(SEEN, status.version);                                // shown once, even if the page is reloaded right now
   const host = document.createElement('div'); host.id = 'updBanner'; host.className = 'upd-banner'; host.setAttribute('role', 'status'); host.dataset.testid = 'updated-banner';
-  host.innerHTML = `<div class="row sp"><b>Updated to v${esc(status.version)} — what's new</b><button type="button" class="icon" id="updBannerX" aria-label="Dismiss" data-testid="updated-banner-dismiss">✕</button></div>
-    <div class="upd-banner-body">${changelogHtml(news.length ? news : a.changelog.slice(0, 1), { open: false })}</div>
-    <div class="row"><a class="btn small" href="#about" id="updBannerMore" data-testid="updated-banner-about">Open About</a></div>`;
+  // one line: the notes themselves are one tap away in About (kept in the page, hidden, for AI assistants reading it)
+  host.innerHTML = `<span class="ub-line">Updated to v${esc(status.version)} · <a href="#config/help" id="updBannerMore" data-testid="updated-banner-about">what's new</a></span><button type="button" class="icon" id="updBannerX" aria-label="Dismiss" data-testid="updated-banner-dismiss">✕</button>
+    <div class="upd-banner-body" hidden>${changelogHtml(news.length ? news : a.changelog.slice(0, 1), { open: false })}</div>`;
   $('#content').insertBefore(host, $('#main'));          // after the server-rendered AI note, which must stay the first child of <main>
   $('#updBannerX').onclick = () => host.remove();
   $('#updBannerMore').onclick = () => host.remove();

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0f766e">
+<meta name="theme-color" content="#16202a">
 <meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Pi Tester"><meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -15,39 +15,44 @@
 <link rel="stylesheet" href="mb.css">
 <link rel="stylesheet" href="newtest.css">
 <link rel="stylesheet" href="compare.css">
-<link rel="modulepreload" href="app.js"><link rel="modulepreload" href="ui.js"><link rel="modulepreload" href="state.js"><link rel="modulepreload" href="setup.js"><link rel="modulepreload" href="run.js"><link rel="modulepreload" href="monitor.js"><link rel="modulepreload" href="results.js"><link rel="modulepreload" href="generator.js"><link rel="modulepreload" href="sniffer.js"><link rel="modulepreload" href="settings.js"><link rel="modulepreload" href="aiguide.js"><link rel="modulepreload" href="update.js"><link rel="modulepreload" href="endpoints.js">
+<link rel="stylesheet" href="instrument.css">
+<link rel="modulepreload" href="app.js"><link rel="modulepreload" href="ui.js"><link rel="modulepreload" href="state.js"><link rel="modulepreload" href="setup.js"><link rel="modulepreload" href="transport.js"><link rel="modulepreload" href="home.js"><link rel="modulepreload" href="config.js"><link rel="modulepreload" href="run.js"><link rel="modulepreload" href="monitor.js"><link rel="modulepreload" href="results.js"><link rel="modulepreload" href="generator.js"><link rel="modulepreload" href="sniffer.js"><link rel="modulepreload" href="aiguide.js"><link rel="modulepreload" href="update.js"><link rel="modulepreload" href="endpoints.js">
 </head>
 <body>
 <div id="shell">
 <header class="top">
-  <a class="brand" href="#setup" aria-label="Pi Automation Traffic Tester" title="Pi Automation Traffic Tester">
-    <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M6 17h5l3-8 4 14 3-6h5" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <span class="bt"><b>Pi Automation Traffic Tester</b><small class="appver" id="appVer" data-testid="app-version" title="Installed version — tap for About and what's new"><!--APP_VERSION--></small></span>
-  </a>
-  <nav id="tabs" role="tablist" aria-label="Screens">
-    <button role="tab" data-tab="setup" data-testid="tab-setup"><svg class="ti" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6v3H9z"/><path d="M7 5.5H6a1 1 0 0 0-1 1V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6.5a1 1 0 0 0-1-1h-1"/><path d="M9 14l2 2 4-4"/></svg><span class="tl">Setup</span></button>
-    <button role="tab" data-tab="run" data-testid="tab-run"><svg class="ti" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5v14l11-7z"/></svg><span class="tl">Run</span></button>
-    <button role="tab" data-tab="results" data-testid="tab-results"><svg class="ti" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg><span class="tl">Results</span></button>
-    <span class="sep" aria-hidden="true"></span>
-    <button role="tab" data-tab="generator" data-testid="tab-generator"><svg class="ti" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></svg><span class="tl">Generator</span></button>
-    <button role="tab" data-tab="sniffer" data-testid="tab-sniffer"><svg class="ti" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg><span class="tl">Sniffer</span></button>
-    <span class="sep" aria-hidden="true"></span>
-    <button role="tab" data-tab="settings" data-testid="tab-settings"><svg class="ti" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span class="tl">Settings</span></button>
-  </nav>
-  <div class="top-right">
-    <a href="#about" id="aboutTop" class="ailink" data-testid="top-about" aria-label="About: version and what's new" title="Installed version, update status and what changed in each version">About</a>
-    <a href="/ai-guide" id="aiGuideTop" class="ailink" data-testid="top-ai-guide" aria-label="AI guide: instructions for AI assistants" title="A plain-text manual of this app for AI assistants (browser AI assistants such as Tag Along or a ChatGPT sidebar)">AI guide</a>
+  <div class="strip">
+    <a class="brand" href="#home" aria-label="Pi Automation Traffic Tester" title="Pi Automation Traffic Tester">
+      <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden="true"><rect width="32" height="32" rx="6" fill="var(--accent)"/><path d="M6 17h5l3-8 4 14 3-6h5" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
     <a href="#settings" id="piName" class="chip" data-testid="top-pi-name" title="This Pi: tap for Settings"></a>
-    <span id="userBox" class="userbox" hidden><span data-testid="top-signed-in">Signed in</span><a href="#" id="signOut" data-testid="top-sign-out" title="Sign out of this Pi on this browser">Sign out</a></span>
-    <span id="conn" class="dot off" title="Live connection to this Pi"></span>
-    <button id="themeBtn" data-testid="top-switch-theme" class="icon" title="Switch light / dark" aria-label="Switch theme">◐</button>
+    <div id="lamps" class="lamps-strip" role="group" aria-label="Status lamps"></div>
+    <div class="top-right">
+      <small class="appver" id="appVer" data-testid="app-version" title="Installed version — tap for About and what's new"><!--APP_VERSION--></small>
+      <span id="conn" class="dot off" title="Live connection to this Pi"></span>
+    </div>
   </div>
+  <nav id="tabs" role="tablist" aria-label="Screens">
+    <button role="tab" data-tab="home" data-testid="tab-home"><svg class="ti" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg><span class="tl">Home</span></button>
+    <button role="tab" data-tab="tests" data-testid="tab-tests"><svg class="ti" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6v3H9z"/><path d="M7 5.5H6a1 1 0 0 0-1 1V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6.5a1 1 0 0 0-1-1h-1"/><path d="M9 14l2 2 4-4"/></svg><span class="tl">Tests</span></button>
+    <button role="tab" data-tab="generator" data-testid="tab-generator"><svg class="ti" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13M13 4l4 4-4 4M20 16H7M11 12l-4 4 4 4"/></svg><span class="tl">Generator</span></button>
+    <button role="tab" data-tab="sniffer" data-testid="tab-sniffer"><svg class="ti" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg><span class="tl">Sniffer</span></button>
+    <button role="tab" data-tab="results" data-testid="tab-results"><svg class="ti" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg><span class="tl">Results</span></button>
+    <button role="tab" data-tab="config" id="setupBtn" class="rail-setup" data-testid="tab-config" aria-label="Setup" title="Setup: Pis, network, time, update, password, help"><svg class="ti" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span class="tl">Setup</span></button>
+  </nav>
 </header>
+<div id="transport" class="transport" data-testid="transport" data-state="ready" role="group" aria-label="Test controls">
+  <div class="tb-state"><i class="tb-lamp"></i><span id="tbWord" data-testid="tb-word">READY</span><b id="tbTime" data-testid="tb-time">00:00:00</b></div>
+  <div class="tb-name" id="tbName" data-testid="tb-name"></div>
+  <button type="button" class="tb-btn" id="tbClear" data-testid="tb-clear" aria-label="Clear" disabled title="Clear the finished result and get ready for the next run"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg><span>Clear</span></button>
+  <button type="button" class="tb-btn" id="tbMark" data-testid="tb-mark" aria-label="Mark" disabled title="Drop a flag now (for example antenna moved)"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg><span>Mark</span></button>
+  <button type="button" class="tb-start" id="tbStart" data-testid="tb-start" data-state="ready"><span class="tb-ico">▶</span><span class="tb-lbl">START</span></button>
+</div>
 <main id="content">
   <section id="aiContext" class="ai-ctx" aria-label="For AI assistants"><!--AI_CONTEXT--></section>
   <div id="main"></div>
 </main>
-<footer id="about" class="about">Pi Automation Traffic Tester · built for the Raspberry Pi 5 · <span id="hw"></span> · <a href="#about" data-testid="foot-about">About</a> · <a href="/ai-guide" data-testid="foot-ai-guide" aria-label="AI guide: instructions for AI assistants">AI guide</a></footer>
+<footer id="about" class="about">Pi Automation Traffic Tester · built for the Raspberry Pi 5 · <span id="hw"></span> · <span id="userBox" class="userbox" hidden><span data-testid="top-signed-in">Signed in</span><a href="#" id="signOut" data-testid="top-sign-out" title="Sign out of this Pi on this browser">Sign out</a></span> · <button id="themeBtn" data-testid="top-switch-theme" class="icon" title="Switch light / dark" aria-label="Switch theme">◐</button> · <a href="#about" data-testid="foot-about">About</a> · <a href="/ai-guide" data-testid="foot-ai-guide" aria-label="AI guide: instructions for AI assistants">AI guide</a></footer>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="modal" class="modal" hidden></div>

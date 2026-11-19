@@ -148,7 +148,7 @@ try:
         errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
 
         def settings(port=PA):
-            pg.goto(f"http://127.0.0.1:{port}/#settings"); pg.reload(); pg.wait_for_selector("#setUpdate h2", timeout=20000); pg.wait_for_timeout(800)
+            pg.goto(f"http://127.0.0.1:{port}/#config/update"); pg.reload(); pg.wait_for_selector("#setUpdate h2", timeout=20000); pg.wait_for_timeout(800)
 
         settings()
         txt = pg.inner_text("#setUpdate")
@@ -246,7 +246,7 @@ try:
         check("'Also update another Pi': alpha sends the verified bundle to bravo, bravo installs, restarts and reports the new version", done and done["state"] == "done" and version(PB) == v1, f"{json.dumps(done)[:200]} B now {version(PB)}")
         pg.screenshot(path=f"{SHOTS}/update-6-other-pi.png")
         mob = br.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True); mp = mob.new_page()
-        mp.goto(f"http://127.0.0.1:{PA}/#settings"); mp.wait_for_selector("#setUpdate h2"); mp.wait_for_timeout(800)
+        mp.goto(f"http://127.0.0.1:{PA}/#config/update"); mp.wait_for_selector("#setUpdate h2"); mp.wait_for_timeout(800)
         sw = mp.evaluate("document.documentElement.scrollWidth"); iw = mp.evaluate("window.innerWidth")
         check("software-update card fits a 390 px phone (no horizontal scroll)", sw <= iw, f"scrollWidth {sw} <= innerWidth {iw}")
         mp.locator("#setUpdate").screenshot(path=f"{SHOTS}/update-7-phone.png")

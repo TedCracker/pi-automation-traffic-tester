@@ -191,7 +191,7 @@ function endsRow() {
   const seg = mb ? `<div class="ntlock" data-testid="nt-dir-locked">⇄ <b>Round trip, automatic</b>: both Pis send nonstop; a trip bit is timed there and back.</div>`
     : `<div class="ntdir"><div class="seg" role="radiogroup" aria-label="Direction" data-testid="nt-direction">${[['one_way', '→ One way'], ['round_trip', '⇄ Round trip'], ['both', '⇆ Both ways']].map(([d, t]) => { const why = dirReason(p, m, d); return `<button type="button" role="radio" aria-checked="${m.dir === d}" class="${m.dir === d ? 'on' : ''}${why ? ' off' : ''}" data-nt="dir" data-id="${d}" data-testid="nt-dir-${d}" ${why ? `aria-disabled="true" title="${esc(why)}"` : ''}>${t}</button>`; }).join('')}</div>
       <button type="button" class="btn small" data-nt="swap" data-testid="nt-swap" title="The other way round: the far end sends, this Pi receives">⇅ Swap</button></div>
-      <p class="muted ntdirnote" data-testid="nt-dir-note">${esc({ one_way: 'One way: the delay in this direction only. Both Pis must be on the same clock (Settings → Time source). Loss and jitter never need it.', round_trip: 'Round trip: the far end sends every message straight back, and the sender times the trip.', both: 'Both ways: each link runs in each direction at the same time.' }[m.dir])}</p>`;
+      <p class="muted ntdirnote" data-testid="nt-dir-note">${esc({ one_way: 'One way: the delay in this direction only. Both Pis must be on the same clock (Setup → Time). Loss and jitter never need it.', round_trip: 'Round trip: the far end sends every message straight back, and the sender times the trip.', both: 'Both ways: each link runs in each direction at the same time.' }[m.dir])}</p>`;
   const why = one && !mb ? `<p class="muted">${p.transport === 'serial' ? 'A serial port reaches one far end.' : 'A GOOSE test runs between two Pis.'} For a second link, start another test.</p>` : mb ? '<p class="muted">Mirrored Bits is always one pair of Pis.</p>' : '';
   const fromBlock = `<div class="ntend"><span class="ntlab">From</span>${m.flow === 'in' ? farList : here}</div>`, toBlock = `<div class="ntend"><span class="ntlab">To</span>${m.flow === 'in' ? here : farList}</div>`;
   const farPort = one && m.far[0] && m.far[0].pi && !GOOSE(p.transport) && p.transport === 'serial' ? farPortHtml(m.far[0]) : '';
@@ -213,7 +213,10 @@ async function loadFar(key) {
 function trafficRow() {
   const c = N.c, p = c.p, mb = p.mode === 'mirrored', D = customData(), netem = D.netem || {}, t = p.transport;
   const lenUnits = mb ? ['seconds', 'minutes', 'hours'] : ['seconds', 'minutes', 'hours', 'messages'];
-  const len = `<label class="f"><span>Test length</span><div class="fieldrow"><input data-k="ui.len" data-t="num" type="number" step="any" inputmode="decimal" value="${Number.isFinite(c.ui.len) ? c.ui.len : ''}"><select data-k="ui.lenUnit" data-t="str">${lenUnits.map(u => `<option value="${u}" ${c.ui.lenUnit === u ? 'selected' : ''}>${u}</option>`).join('')}</select></div>${errEl('ui.len')}</label>`;
+  const lc = (p.length_choices || []).slice(), curS = Number.isFinite(c.ui.len) ? c.ui.len * ({ seconds: 1, minutes: 60, hours: 3600 }[c.ui.lenUnit] || NaN) : NaN;
+  const lenName = x => x % 3600 === 0 && x <= 48 * 3600 ? `${x / 3600} h` : x % 86400 === 0 ? `${x / 86400} days` : x % 60 === 0 ? `${x / 60} min` : `${x} s`;
+  const chips = lc.length ? `<div class="seg ntlen" role="radiogroup" aria-label="Test length" data-testid="nt-len-choices">${lc.map(x => `<button type="button" role="radio" aria-checked="${Math.abs(curS - x) < 0.5}" class="${Math.abs(curS - x) < 0.5 ? 'on' : ''}" data-nt="len" data-v="${x}" data-testid="nt-len-${x}">${lenName(x)}</button>`).join('')}</div>` : '';
+  const len = `<div class="ntlenwrap">${chips}<label class="f"><span>Test length</span><div class="fieldrow"><input data-k="ui.len" data-t="num" type="number" step="any" inputmode="decimal" value="${Number.isFinite(c.ui.len) ? c.ui.len : ''}"><select data-k="ui.lenUnit" data-t="str">${lenUnits.map(u => `<option value="${u}" ${c.ui.lenUnit === u ? 'selected' : ''}>${u}</option>`).join('')}</select></div>${errEl('ui.len')}</label></div>`;
   const rate = `<label class="f"><span>Send a message every ${tip('interval')}</span><div class="fieldrow"><input data-k="ui.rate" data-t="num" type="number" step="any" inputmode="decimal" value="${Number.isFinite(c.ui.rate) ? c.ui.rate : ''}"><select data-k="ui.rateUnit" data-t="str"><option value="ms" ${c.ui.rateUnit === 'ms' ? 'selected' : ''}>ms</option><option value="hz" ${c.ui.rateUnit === 'hz' ? 'selected' : ''}>messages per second</option></select></div>${errEl('ui.rate')}</label>`;
   const pass = `${field(c, 'threshold_ms', mb ? 'Pass: bit transfer within (ms)' : 'Pass: delay within (ms)', { t: 'threshold' })}
     ${select(c, 'rule.percentile', 'Judged on', [[50, 'Typical message (p50)'], [95, 'p95'], [99, 'p99 (recommended)'], [99.9, 'p99.9 (long runs)'], [100, 'Slowest message (max)']], { t: 'rule', type: 'num' })}
@@ -244,12 +247,12 @@ function barHtml() {
   return `${bad.length || warn.length ? `<div id="checks" data-testid="setup-checks">${[...bad, ...warn].map(checkRow).join('')}</div>` : `<div id="checks" data-testid="setup-checks" hidden>${cs.map(checkRow).join('')}</div>`}
     <div class="actionbar ntbar" data-testid="nt-bar"><div class="nthint"><span id="startHint" data-testid="nt-hint" class="${bad.length ? 'bad' : ''}">${esc(hint)}</span><div class="ntcks" data-testid="nt-checks">${chips}</div><div id="ntJob" data-testid="nt-job"></div></div>
       <div class="row ntbtns"><button type="button" class="btn" data-nt="cancel" data-testid="nt-cancel">← Tests</button><button type="button" class="btn" data-nt="save" data-testid="nt-save" title="Keep this test in your list">💾 Save</button><button type="button" class="btn" data-nt="repeat" data-testid="nt-repeat" title="Run this test again and again on a schedule (busy hours, weekends)" ${bad.length || wait ? 'disabled' : ''}>🔁 Repeat…</button>
-      <button type="button" class="btn primary big" data-nt="start" id="quickStart" data-testid="nt-start" ${bad.length || wait ? 'disabled' : ''}>▶ Start</button></div></div>`;
+      <button type="button" class="btn primary big tb-src" data-nt="start" id="quickStart" data-testid="nt-start" title="Run this test now" ${bad.length || wait ? 'disabled' : ''}>▶ Run test</button></div></div>`;
 }
 function pageHtml() {
   const c = N.c, editing = c.id != null;
   return `<div id="ntPage" data-testid="nt-page"><div class="row sp nttop"><h1 style="margin:0">${editing ? esc(c.p.name) : 'New test'}</h1><span class="chip" title="The Pi you are on: its ports are in row 1">${esc(meName())}</span></div>
-    ${editing ? `<p class="sub muted">${c.builtin ? 'Built-in test. ' : ''}Tap a row to change it. Start runs it with what you see; Save keeps the changes.</p>` : '<p class="sub muted">Answer top to bottom. Every row has a default, so the shortest way is: port, protocol, tick the far Pi, Start.</p>'}
+    ${editing ? `<p class="sub muted">${c.builtin ? 'Built-in test. ' : ''}Tap a row to change it. Run test runs it with what you see; Save keeps the changes.</p>` : '<p class="sub muted">Answer top to bottom. Every row has a default, so the shortest way is: port, protocol, tick the far Pi, Run test.</p>'}
     <div class="ntrows">${portRow()}${protoRow()}${endsRow()}${trafficRow()}</div><div id="ntBar">${barHtml()}</div></div>`;
 }
 
@@ -288,7 +291,7 @@ function changed(delay = 350, redraw = true) {
 }
 
 // ---------------------------------------------------------------- the automatic check
-const PIS_LINK = { href: '#settings', label: 'Settings → Pis on this network', testid: 'setup-pis-link' };
+const PIS_LINK = { href: '#config/pis', label: 'Setup → Pis on this network', testid: 'setup-pis-link' };
 const cap = t => t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
 export function profileNow() { derive(N.c); return toProfile(N.c); }
 async function runChecks() {
@@ -306,11 +309,11 @@ async function doChecks() {
   if (!N.c || my !== N.seq) return;
   const keys = Object.keys(errs);
   if (keys.length) out.push({ s: 'bad', id: 'fields', title: keys.length > 1 ? `${keys.length} fields to fix` : 'One field to fix', text: errs[keys[0]] });
-  if (S.status.run.running) out.push({ s: 'bad', id: 'running', title: `A test is already running on ${meName()}`, text: 'Wait for it, or stop it on the Run screen.', link: { href: '#run', label: 'Open Run', testid: 'nt-open-run' } });
+  if (S.status.run.running) out.push({ s: 'bad', id: 'running', title: `A test is already running on ${meName()}`, text: 'Wait for it, or stop it with STOP in the bar.', link: { href: '#tests', label: 'Open Run', testid: 'nt-open-run' } });
   if (sp && sp.missing) out.push({ s: 'bad', id: 'port', title: `${sp.name} is not on this Pi`, text: 'Pick one of the ports in row 1.' });
   else if (sp && N.portId && sp.kind !== 'serial') {
     if (!sp.link) out.push({ s: 'bad', id: 'port', title: `${sp.name} has no link`, text: sp.kind === 'wifi' ? 'This Wi-Fi port is not connected. Pick another port.' : 'Plug in the cable, or pick another port.' });
-    else if (ip && !sp.ip) out.push({ s: 'bad', id: 'port', title: `${sp.name} has no IP address`, text: 'Give it one, or pick another port.', link: { href: '#settings', label: 'Settings → Network', testid: 'nt-net-link' } });
+    else if (ip && !sp.ip) out.push({ s: 'bad', id: 'port', title: `${sp.name} has no IP address`, text: 'Give it one, or pick another port.', link: { href: '#config/network', label: 'Setup → Network', testid: 'nt-net-link' } });
     else if (sp.you_are_here && sp.kind === 'wifi') out.push({ s: 'warn', id: 'port-wifi', chip: `test shares ${sp.name} with you`, title: `You are connected to ${meName()} through ${sp.name}`, text: 'A test on it shares the air with your phone or laptop and may read worse. Use Ethernet for the test if you can.' });
   }
   if (!N.ports.length) out.push({ s: 'bad', id: 'port', title: 'No test port found', text: 'Plug in a cable or the USB-serial adapter, then “Look again” in row 1.' });
@@ -335,7 +338,7 @@ async function doChecks() {
         if (r.ok) {
           out.push({ s: 'ok', id: 'reachable', chip: `${name} answered`, title: `${cap(name)} answered`, text: '' });
           if (m.dir === 'one_way' || p.one_way) out.push(r.one_way_ok ? { s: 'ok', id: 'clocks', chip: 'clocks synced', title: 'Clocks synced for one-way timing', text: '' }
-            : { s: m.dir === 'one_way' ? 'bad' : 'warn', id: 'clocks', chip: 'one-way timing unavailable', title: `One way needs ${meName()} and ${name} on the same clock`, text: ((r.peer && r.peer.one_way_unavailable) || 'The clocks are not synced.') + (m.dir === 'one_way' ? ' Use Round trip, or sync the clocks first.' : ' The test will time the round trip only.'), link: { href: '#settings', label: 'Settings → Time source', testid: 'setup-time-source-link' } });
+            : { s: m.dir === 'one_way' ? 'bad' : 'warn', id: 'clocks', chip: 'one-way timing unavailable', title: `One way needs ${meName()} and ${name} on the same clock`, text: ((r.peer && r.peer.one_way_unavailable) || 'The clocks are not synced.') + (m.dir === 'one_way' ? ' Use Round trip, or sync the clocks first.' : ' The test will time the round trip only.'), link: { href: '#settings', label: 'Setup → Time', testid: 'setup-time-source-link' } });
           for (const w of r.warnings || []) out.push({ s: 'warn', id: 'path', chip: 'check the path', title: 'Check the path', text: w });
         } else out.push({ s: 'bad', id: 'reachable', title: `${cap(name)} did not answer${sp && N.portId && ip ? ' from ' + sp.name : ''}`, text: r.error, link: /password/i.test(r.error || '') ? PIS_LINK : null });
       } catch (er) {
@@ -411,7 +414,8 @@ async function onClick(ev) {
   const a = ev.target.closest('[data-nt]'); if (!a || !N.c) return;
   const act = a.dataset.nt, id = a.dataset.id, p = N.c.p;
   if (a.getAttribute('aria-disabled') === 'true') { const why = a.title || $('small', a)?.textContent; if (why) toast(why, false, 6000); return; }
-  if (act === 'toggle') { N.open[id] = !N.open[id]; draw(); if (N.open[id]) $(`[data-row="${id}"]`, N.root)?.scrollIntoView({ block: 'nearest' }); }
+  if (act === 'len') { const x = +a.dataset.v, u = x % 3600 === 0 ? 'hours' : x % 60 === 0 ? 'minutes' : 'seconds'; N.c.ui.lenUnit = u; N.c.ui.len = x / { seconds: 1, minutes: 60, hours: 3600 }[u]; changed(0, true); }
+  else if (act === 'toggle') { N.open[id] = !N.open[id]; draw(); if (N.open[id]) $(`[data-row="${id}"]`, N.root)?.scrollIntoView({ block: 'nearest' }); }
   else if (act === 'port') { choosePort(id); changed(); }
   else if (act === 'baud') { if (id === 'other') N.otherBaud = true; else { N.otherBaud = false; p.serial.baud = +id; } N.c.baudSet = true; changed(); }
   else if (act === 'allports') { N.allPorts = true; draw(); }
@@ -483,7 +487,10 @@ export async function openNewTest(root, { profile = null, mode = 'new', cb = {},
   draw(); window.scrollTo({ top: 0 });
   runChecks();
 }
-export const newTestOpen = () => !!N.c;
+// "Open" = a draft exists AND its page is still on screen. Leaving the page without Cancel (Home / another tab, browser Back, a finished run) used to leave the draft behind,
+// and the Tests list then ignored every tap until a reload (setup.js listClick stands down while the form is open).
+export const newTestOpen = () => !!(N.c && N.root && N.root.isConnected);
+export function closeNewTest() { clearTimeout(N.timer); N.seq++; N.c = null; N.root = null; N.checks = []; }      // the list is drawn again: no draft, no pending check
 // The list of Pis changed (a Pi came back, a clock got synced): refresh row 3 unless the user is typing.
 setInterval(async () => {
   if (!N.c || !N.root || !N.root.isConnected || document.hidden) return;

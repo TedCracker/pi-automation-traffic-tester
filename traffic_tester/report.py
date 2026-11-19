@@ -328,10 +328,77 @@ def _steps_block(s) -> List:
     return out
 
 
+def _fmt(v, unit="", d=2):
+    return "-" if v is None else f"{round(v, d):g}{(' ' + unit) if unit else ''}"
+
+
+def _measure_cell(m, key):
+    """One application's numbers in one step, as the cell of the test-set table."""
+    if not m:
+        return "-"
+    pc = key or "p99"
+    lat = (m.get("lat_ms") or {}).get(pc)
+    return f"loss {_fmt(m['loss_pct'], '%')}<br/>delay {_fmt(lat, 'ms')}<br/>jitter {_fmt(m.get('jitter_ms'), 'ms')}<br/>{_fmt(m['rx_mbps'], 'Mb/s')}"
+
+
+def _target_text(t: dict) -> str:
+    out = []
+    if t.get("max_loss_pct") is not None:
+        out.append(f"loss &lt;= {t['max_loss_pct']:g} %")
+    if t.get("max_latency_ms"):
+        pc = t.get("latency_percentile", 99)
+        out.append(f"delay {'max' if pc == 100 else 'p' + str(pc)} &lt;= {t['max_latency_ms']:g} ms")
+    if t.get("max_jitter_ms"):
+        out.append(f"jitter &lt;= {t['max_jitter_ms']:g} ms")
+    if t.get("min_throughput_mbps"):
+        out.append(f"throughput &gt;= {t['min_throughput_mbps']:g} Mb/s")
+    return "<br/>".join(out) or "none"
+
+
+def _testset_block(s: dict) -> List:
+    """The test-set report: one table per application (target, alone, together, fill, margin, result), the steps, and the sign-off lines."""
+    ts = s["testset"]
+    out: List = []
+    st = ", ".join(f"{x['n']}. {_x(x['label'])} ({x['duration_s'] if x['duration_s'] is not None else 'not run'}{' s' if x['duration_s'] is not None else ''}{', judged' if x['judged'] else ', not judged'})" for x in ts["steps"])
+    out.append(Paragraph("<b>Steps:</b> " + st, BODY))
+    out.append(Paragraph("Applications against their targets" + (" <font size=8 color='#5c6b7a'>(example targets, not from a standard)</font>" if ts.get("example_targets") else ""), H3))
+    head = ["Application", Paragraph("Target", SMALL), Paragraph("Alone", SMALL), Paragraph("All together", SMALL)]
+    has_alone, has_fill = any(a.get("alone") for a in ts["apps"]), any(a.get("fill") for a in ts["apps"])
+    if not has_alone:
+        head.pop(2)
+    if has_fill:
+        head.append(Paragraph("Together + fill", SMALL))
+    head += ["Margin", "Result"]
+    rows = [head]
+    for a in ts["apps"]:
+        t = a["target"]
+        pc = "max" if t.get("latency_percentile") == 100 else f"p{t.get('latency_percentile', 99)}"
+        margins = "<br/>".join(f"{_x(c['label'])} {'+' if (c['margin'] or 0) >= 0 else ''}{_fmt(c['margin'], c['unit'])}" for c in a["checks"] if c["margin"] is not None) or "-"
+        res = "PASS" if a["pass"] else "FAIL" if a["pass"] is False else "not checked"
+        row = [Paragraph(f"<b>{_x(a['name'])}</b><br/><font size=7 color='#5c6b7a'>{_x(a['type'])} {_x(a['size'])}</font>", SMALL), Paragraph(_target_text(t), SMALL)]
+        if has_alone:
+            row.append(Paragraph(_measure_cell(a.get("alone"), pc), SMALL))
+        row.append(Paragraph(_measure_cell(a["together"], pc), SMALL))
+        if has_fill:
+            row.append(Paragraph(_measure_cell(a.get("fill"), pc), SMALL))
+        row += [Paragraph(margins, SMALL), res]
+        rows.append(row)
+    out.append(_tbl(rows))
+    if has_alone:
+        out.append(Paragraph("Alone, then together shows what sharing the link cost each application. The alone and fill steps are shown, not judged: the verdict is the 'all together' step.", SMALL))
+    sign = Table([["Site / link:", "", "Tested by:", ""], ["Date:", "", "Signature:", ""], ["Reviewed by:", "", "Signature:", ""]],
+                 colWidths=[26 * mm, 58 * mm, 26 * mm, 58 * mm], rowHeights=[9 * mm] * 3)
+    sign.setStyle(TableStyle([("FONTSIZE", (0, 0), (-1, -1), 8), ("TEXTCOLOR", (0, 0), (-1, -1), GREY), ("LINEBELOW", (1, 0), (1, -1), 0.5, GREY), ("LINEBELOW", (3, 0), (3, -1), 0.5, GREY),
+                              ("VALIGN", (0, 0), (-1, -1), "BOTTOM")]))
+    out += [Paragraph("Sign-off", H3), sign]
+    return out
+
+
 def _gen_section(store, r) -> List:
     s, p = r["summary"] or {}, r["profile"]
-    out = [Paragraph(f"Traffic generator - {p.get('name', '')} &nbsp; <font size=9 color='#5c6b7a'>(run {r['id']}, {r['started_at']})</font>", H2),
-           _banner(r["verdict"], f"&nbsp; {len(s.get('streams', []))} stream(s), {s.get('duration_s', '')} s")]
+    ts = bool(s.get("testset"))
+    out = [Paragraph(f"{'Test set' if ts else 'Traffic generator'} - {_x(p.get('name', ''))} &nbsp; <font size=9 color='#5c6b7a'>(run {r['id']}, {r['started_at']})</font>", H2),
+           _banner(r["verdict"], f"&nbsp; {len(s.get('streams', []))} {'application' if ts else 'stream'}(s), {s.get('duration_s', '')} s")]
     if s.get("nodes"):
         out.append(Paragraph("<b>Pis taking part:</b> " + ", ".join(_x(str(n)) for n in s["nodes"]), BODY))
     out += _reasons(s)
@@ -341,6 +408,8 @@ def _gen_section(store, r) -> List:
     t = s["totals"]
     c = s.get("clocks") or {}
     out += _steps_block(s)
+    if s.get("testset"):
+        out += _testset_block(s)
     out.append(Spacer(1, 4))
     out.append(_tbl([["Sent", "Received", "Lost", "Throughput sent", "Throughput received", "Delay p99 (one-way)"],
                      [f"{t['tx_pkts']:,}", f"{t['rx_pkts']:,}", f"{t['lost']:,} ({t['loss_pct']} %)", f"{t['tx_mbps']} Mb/s", f"{t['rx_mbps']} Mb/s",
@@ -389,7 +458,7 @@ def _gen_section(store, r) -> List:
         lim.append(f"jitter <= {rule['max_jitter_ms']} ms")
     if rule.get("min_throughput_mbps"):
         lim.append(f"throughput >= {rule['min_throughput_mbps']} Mb/s")
-    out.append(Paragraph("Pass rule: " + (", ".join(lim) or "none"), SMALL))
+    out.append(Paragraph("Pass rule: " + ("each application's own target (see the table at the top)" if s.get("testset") else ", ".join(lim) or "none"), SMALL))
     for x in s["streams"]:
         for w in x.get("warnings", []):
             out.append(Paragraph(f"Note ({x['name']}): {w}", SMALL))
@@ -578,7 +647,7 @@ def build_report(store, run_ids: List[int], title: str = "Link test report", hos
         if s.get("kind") == "generator":
             t = s.get("totals") or {}
             key = f"{t.get('rx_mbps', '-')} Mb/s, loss {t.get('loss_pct', '-')} %"
-            kind = "Traffic generator"
+            kind = "Test set" if s.get("testset") else "Traffic generator"
         elif s.get("kind") == "sniffer":
             a = s.get("analysis") or {}
             key = f"{a.get('packets', 0):,} packets, {a.get('bytes', 0):,} bytes"

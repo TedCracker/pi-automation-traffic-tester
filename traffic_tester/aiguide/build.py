@@ -59,6 +59,8 @@ def recipe_for_preset(p: dict) -> str:
 
 
 def screen_of(p: dict) -> str:
+    if p.get("kind") == "generator" and (p.get("gen", {}).get("testset") or {}).get("enabled"):
+        return "Tests (test set)"
     return {"trip": "Setup", "generator": "Generator", "sniffer": "Sniffer"}[p.get("kind", "trip")]
 
 
@@ -402,14 +404,14 @@ def build_doc(st, app, authed: bool = True) -> Doc:
         sc.p(v["purpose"])
         if v["controls"]:
             sc.table(["Selector (data-testid)", "Exact label", "What it does"], [[f'[data-testid="{t}"]', l, w] for t, l, w in v["controls"]])
-    sc.h3("Always present (top bar and footer)")
-    sc.table(["Selector (data-testid)", "Exact label", "What it does"], [[f'[data-testid="{t}"]', l, w] for t, l, w in K.TOP_CONTROLS] + [["[data-testid=\"foot-ai-guide\"]", "AI guide", "Footer link to this guide (also inside the small 'For AI assistants' note and in Settings)."], ["[data-testid=\"foot-about\"]", "About", "Footer link to the About screen."]])
+    sc.h3("Always present (lamp strip, tabs and footer)")
+    sc.table(["Selector (data-testid)", "Exact label", "What it does"], [[f'[data-testid="{t}"]', l, w] for t, l, w in K.TOP_CONTROLS] + [["[data-testid=\"foot-ai-guide\"]", "AI guide", "Footer link to this guide (also inside the hidden 'For AI assistants' note and in Settings)."], ["[data-testid=\"foot-about\"]", "About", "Footer link to the About screen."]])
     sc.p("Renamed or removed controls (for assistants that remember an older version of this app, which had a three-step Setup with 'Send from' / 'Send to' pickers and a 'Create custom test' form): [data-testid=\"setup-from\"], [data-testid=\"setup-to\"], [data-testid=\"setup-to-host\"], [data-testid=\"setup-endpoints\"] and [data-testid=\"custom-endpoints\"] are now row 3 of the New test page ('From' = nt-here, 'To' = the tick list nt-far-<name of the other Pi>, typed address = nt-far-host). [data-testid=\"setup-direction-round_trip\"], [data-testid=\"setup-direction-forward\"], [data-testid=\"setup-direction-reverse\"] and [data-testid=\"setup-direction-both\"] are now nt-dir-round_trip, nt-dir-one_way (the other way: nt-swap) and nt-dir-both. [data-testid=\"setup-check\"] ('↻ Check again') is gone: the check runs by itself and its rows are in [data-testid=\"setup-checks\"]. [data-testid=\"setup-from-serial-port\"], [data-testid=\"setup-to-serial-port\"] and [data-testid=\"setup-from-iface\"] are now the port chips of row 1 (nt-port-<port name>) and 'Port on <far Pi>' (nt-far-port). 'Step 1 / 2 / 3', 'Continue with …', 'Review settings', '← Back' and '▶ Start test' are replaced by the four rows and ▶ Start (nt-start); 'Save and run pre-flight' by '💾 Save' (nt-save).")
-    sc.p("Top right of the top bar there is only this Pi's name (tap it for Settings) and, when a web password is set, 'Signed in' with a 'Sign out' link; the small dot next to them is green when the live connection to the Pi is up.")
+    sc.p("The dark strip at the top shows this Pi's name and six status lamps: PEER, CLK, ETH, SER, PI, CAP (grey = nothing to judge, green = fine, amber = look, red = broken); tap a lamp for one line about it. At its right (wide screens) the installed version (tap: About) and a small dot (green = live connection up). The footer holds About, AI guide, the light/dark switch (◐) and, when a web password is set, 'Signed in' with 'Sign out'. The long 'For AI assistants' note is still in the page but no longer drawn on screen, and after an update a one-line 'Updated to vX · what's new' shows once.")
     pr = doc.sections[-1]
     pr.h3("Ready-made tests (presets) - generated from the app")
     pr.table(["Name (exact)", "Screen", "Link", "Details", "Recipe"], [[p["name"], screen_of(p), K.TRANSPORT_ABOUT.get(p["transport"], p["transport"]).split(" (")[0], _preset_details(p), K.RECIPES_TITLE[recipe_for_preset(p)]] for p in presets()])
-    pr.p("Generator and Sniffer cards: [data-testid=\"<screen>-pick-<name in lower-case with dashes>\"], for example generator-pick-burst-stress. Setup test cards: the card itself is [data-testid=\"setup-open-<name in lower-case with dashes>\"] (it opens the information sheet) and its buttons are setup-run--<name> ('▶ Run', opens the New test page ready to start), setup-edit--<name>, setup-rename--<name> and setup-more-actions--<name> (the ⋮ menu), for example setup-run--quick-link-check. Your own tests (made with '＋ New test' and '💾 Save', or 'Duplicate') are in the same list, after the built-in ones unless you moved them.")
+    pr.p("Sniffer cards: [data-testid=\"sniffer-pick-<name in lower-case with dashes>\"]; Generator: the stream rows are [data-testid=\"gen-row-<n>\"] and their switches gen-on-<n>. Setup test cards: the card itself is [data-testid=\"setup-open-<name in lower-case with dashes>\"] (it opens the information sheet) and its buttons are setup-run--<name> ('▶ Run', opens the New test page ready to start), setup-edit--<name>, setup-rename--<name> and setup-more-actions--<name> (the ⋮ menu), for example setup-run--quick-link-check. Your own tests (made with '＋ New test' and '💾 Save', or 'Duplicate') are in the same list, after the built-in ones unless you moved them.")
     pr.h3("What each built-in test means (the same text the app shows when you tap a test card)")
     for p in presets():
         if p.get("kind", "trip") != "trip" or not p.get("info"):
@@ -445,6 +447,8 @@ def _preset_details(p: dict) -> str:
     k = p.get("kind", "trip")
     if k == "trip":
         return f"message every {p['interval_ms']:g} ms for {p['duration_s']:g} s, delay limit {p['threshold_ms']:g} ms, pass at p{p['rule']['percentile']} with loss <= {p['rule']['max_loss_pct']:g} %" + (f", quiet gaps {p['idle_gaps_s']} s" if p["idle_gaps_s"] else "")
+    if k == "generator" and p["gen"]["testset"]["enabled"]:
+        return f"test set, {len(p['gen']['streams'])} application(s): " + ", ".join(x["name"] for x in p["gen"]["streams"]) + f"; each with an example target; length of the together step {p['gen']['duration_s']:g} s"
     if k == "generator":
         return f"{len(p['gen']['streams'])} stream(s), {p['gen']['duration_s']:g} s: " + p["description"].split(".")[0]
     return p["sniff"]["mode"] + ": " + p["description"].split(".")[0]
@@ -461,7 +465,7 @@ def context_html(st, authed: bool) -> str:
     from html import escape as e
     tabs = ", ".join(l for _, l in tab_labels())
     return (f'<p><strong>For AI assistants:</strong> this is the Pi Automation Traffic Tester v{__version__}; every Pi runs the same app and this one is named {e(st.me.name)}. Screens: {e(tabs)}. '
-            f'<span id="aiScreen">{e(K.VIEWS_BY_TAB_SUMMARY["setup"])}</span> <span id="aiLive">{e(live_line(st, authed))}</span></p>'
+            f'<span id="aiScreen">{e(K.VIEWS_BY_TAB_SUMMARY["home"])}</span> <span id="aiLive">{e(live_line(st, authed))}</span></p>'
             f'<p>Full instructions, exact button labels, click-by-click recipes and live state: link <a href="{GUIDE_PATH}" data-testid="ai-context-guide" aria-label="AI guide: instructions for AI assistants">AI guide</a> ({GUIDE_PATH}, plain text {GUIDE_TXT}).</p>')
 
 

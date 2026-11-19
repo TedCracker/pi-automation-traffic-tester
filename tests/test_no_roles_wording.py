@@ -124,7 +124,7 @@ def test_update_another_pi_takes_a_peer_from_the_list(client):
 
 
 def test_settings_wording_has_no_old_role_words():
-    for f in ("settings.js", "update.js", "peers.js"):
+    for f in ("config.js", "update.js", "peers.js"):
         t = open("traffic_tester/static/" + f, encoding="utf-8").read()
         m = re.search(r"\bPi [AB]\b|\bResponder\b|[Pp]artner Pi|\bTester ·", t)
         assert not m, (f, m.group(0))

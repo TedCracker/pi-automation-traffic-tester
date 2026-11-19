@@ -34,7 +34,7 @@ function done(main, r) {
         : `<li>On the same network as this Pi, open <a href="${esc(r.urls.local)}" data-testid="fb-url"><b>${esc(bare(r.urls.local))}</b></a>${(r.ips || []).length ? `<br><span class="muted">or ${esc(r.ips.map(bare).join(', '))}</span>` : ''}</li>`}
     </ol>
     <p class="muted" id="fbWait" data-testid="fb-wait">Waiting for the Pi to come back…</p>
-    <p class="muted">To use your own Wi-Fi network instead, open Settings → Network after you are in.</p>
+    <p class="muted">To use your own Wi-Fi network instead, open Setup → Network after you are in.</p>
   </div>`;
   let n = 0;
   const poll = async () => {

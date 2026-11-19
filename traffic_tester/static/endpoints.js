@@ -85,7 +85,7 @@ export function directionReason(p, d, ui = {}) {
   }
   if (d === 'reverse' && e.tk === 'addr') return `${e.to} is a typed address, not a Pi in your list, so this Pi cannot start a test there. Add it with “Add a Pi by IP”.`;
   const bad = [clockOf(p, 'source', ui), clockOf(p, 'dest', ui)].filter(c => c.state === 'bad');
-  if (bad.length) return `${bad.map(c => c.name).join(' and ')}: the clock is not synced. One-way timing needs both Pis’ clocks synced (Settings → Time source).`;
+  if (bad.length) return `${bad.map(c => c.name).join(' and ')}: the clock is not synced. One-way timing needs both Pis’ clocks synced (Setup → Time).`;
   return '';
 }
 const DIRS = [
@@ -97,7 +97,7 @@ const DIRS = [
 // Problems with the choice itself (before anything is asked of the network): [{s, title, text, link?}]
 export function endpointProblems(p, ui = {}) {
   const out = [], d = p.direction || 'round_trip', r = directionReason(p, d, ui);
-  if (r) out.push({ s: 'bad', title: `${DIRECTION_NAMES[d]} is not possible here`, text: r.charAt(0).toUpperCase() + r.slice(1), link: /clock/.test(r) ? { href: '#settings', label: 'Settings → Time source', testid: 'setup-time-source-link' } : null });
+  if (r) out.push({ s: 'bad', title: `${DIRECTION_NAMES[d]} is not possible here`, text: r.charAt(0).toUpperCase() + r.slice(1), link: /clock/.test(r) ? { href: '#config/time', label: 'Setup → Time', testid: 'setup-time-source-link' } : null });
   return out;
 }
 
@@ -146,7 +146,7 @@ function clockLine(p, ui, e) {
   const known = cs.some(c => c.state !== 'unknown') || cs.length > 1;
   if (!known) return '';
   const txt = c => `${esc(c.name)}: ${c.state === 'ok' ? 'clock synced' + (c.off != null ? ` (${Math.abs(c.off) < 10 ? Number(c.off).toFixed(1) : Math.round(c.off)} ms off)` : '') : c.state === 'bad' ? '<b>clock not synced</b>' : 'clock checked when you press Check'}`;
-  return `<p class="muted epclocks" data-testid="setup-clocks">${cs.map(txt).join(' · ')} · <a href="#settings" data-testid="setup-time-source-link">Settings → Time source</a></p>`;
+  return `<p class="muted epclocks" data-testid="setup-clocks">${cs.map(txt).join(' · ')} · <a href="#config/time" data-testid="setup-time-source-link">Setup → Time</a></p>`;
 }
 const portLine = (what, name, inner) => `<label class="f"><span>${esc(what)} <b>${esc(name)}</b></span>${inner}</label>`;
 function serialSelect(p, which, e, ui) {

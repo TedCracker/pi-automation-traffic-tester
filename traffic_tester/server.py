@@ -27,7 +27,7 @@ from .netcfg import api as netapi, watchdog as netwd
 from . import firstboot as FB, firstboot_api as fbapi
 from .reflector import Busy as ReflectorBusy, PortClaims, ReflectorService, DEFAULT_PORT as REFLECT_PORT
 from .gen import node as gnode
-from .sniff import bpf as sbpf, preflight as spre
+from .sniff import bpf as sbpf, display as sdisplay, preflight as spre, workbench as swb
 from . import netcheck
 from .aiguide import build as aig
 from .aiguide.model import to_html, to_text
@@ -467,6 +467,12 @@ def create_app(data_dir: str, role: Optional[str] = None) -> FastAPI:
     def profiles():
         return st.store.list_profiles()
 
+    @app.get("/api/apps")
+    def apps_library():
+        """The application library test sets are made from: name, what it is, its stream and its example target."""
+        from . import apps as APPS
+        return APPS.library()
+
     @app.get("/api/profiles/export")
     def profiles_export(ids: Optional[str] = None):
         idl = _ints(ids) if ids else None
@@ -606,8 +612,8 @@ def create_app(data_dir: str, role: Optional[str] = None) -> FastAPI:
 
     # ------------------------------------------------------------ runs
     @app.get("/api/runs")
-    def runs(session_id: Optional[int] = None):
-        return st.store.list_runs(session_id)
+    def runs(session_id: Optional[int] = None, limit: Optional[int] = None):
+        return st.store.list_runs(session_id, limit)
 
     @app.post("/api/runs")
     def run_start(request: Request, body: dict = Body(...)):
@@ -767,6 +773,30 @@ def create_app(data_dir: str, role: Optional[str] = None) -> FastAPI:
     def run_stop(rid: int, request: Request):
         if rid in st.runs.run_ids():                              # a test with several links is several runs: any of their ids stops the test
             st.runs.stop(by=(request.client.host if request.client else "") or "unknown")
+        return {"ok": True}
+
+    @app.post("/api/runs/{rid}/stream")
+    def run_stream(rid: int, body: dict = Body(...)):
+        """Generator: switch one stream off or on while the test runs (body: i = stream number from 0, on = true / false)."""
+        if rid not in st.runs.run_ids():
+            raise HTTPException(404, "That test is not the one running now.")
+        try:
+            st.runs.gen_stream(int(body["i"]), bool(body.get("on", True)))
+        except Busy as e:
+            raise HTTPException(409, str(e))
+        except (KeyError, ValueError, TypeError) as e:
+            raise HTTPException(422, str(e) if isinstance(e, ValueError) else "Say which stream (i) and on or off.")
+        return {"ok": True}
+
+    @app.post("/api/runs/{rid}/clear")
+    def run_clear(rid: int):
+        """Generator: zero the counters on the screen without stopping (the saved result still covers the whole test)."""
+        if rid not in st.runs.run_ids():
+            raise HTTPException(404, "That test is not the one running now.")
+        try:
+            st.runs.gen_clear()
+        except Busy as e:
+            raise HTTPException(409, str(e))
         return {"ok": True}
 
     @app.get("/api/runs/{rid}")
@@ -1128,6 +1158,16 @@ def create_app(data_dir: str, role: Optional[str] = None) -> FastAPI:
         st.gen_node.stop_senders()
         return {"ok": True}
 
+    @app.post("/api/gen/node/stream")
+    def gen_stream_on(body: dict = Body(...)):
+        """Switch one stream this Pi sends off or on while the run goes on."""
+        st.gen_touched = time.monotonic()
+        try:
+            ok = st.gen_node.set_stream_on(int(body["id"]), bool(body.get("on", True)))
+        except (KeyError, ValueError, TypeError):
+            raise HTTPException(422, "Say which stream (id) and on or off.")
+        return {"ok": ok}
+
     @app.post("/api/gen/node/stop")
     def gen_stop():
         return st.gen_node.stop()
@@ -1190,13 +1230,99 @@ def create_app(data_dir: str, role: Optional[str] = None) -> FastAPI:
         s = st.runs.sniff
         return s.live(since) if s else {"n": 0, "rows": [], "running": False}
 
+    # ---- the workbench: one set of calls for the live capture (src=live) and for a saved one (src=run:<id>)
+    def _wb_source(src: str):
+        """('live', SnifferRun) or ('file', OpenCapture)."""
+        if src in ("", "live"):
+            s = st.runs.sniff
+            if not s:
+                raise HTTPException(404, "No capture is running.")
+            return "live", s
+        if src.startswith("run:"):
+            try:
+                rid = int(src[4:])
+            except ValueError:
+                raise HTTPException(422, "Bad capture reference.")
+            sm = _cap_files(rid)
+            paths = [os.path.join(sm["location"], f["name"]) for f in sm["files"] if f["name"].endswith((".pcapng", ".pcap")) and "tap-rtu" not in f["name"] and not f["name"].startswith("shown-")
+                     and os.path.isfile(os.path.join(sm["location"], f["name"]))]
+            if not paths:
+                raise HTTPException(404, "The capture files were removed (ring buffer or drive unplugged).")
+            return "file", swb.open_capture(src, paths, f"Capture {rid}")
+        raise HTTPException(422, "Bad capture reference.")
+
+    def _wb_filter(f: str) -> str:
+        err = sdisplay.check(f)
+        if err:
+            raise HTTPException(422, err)
+        return f
+
+    @app.post("/api/sniff/display/check")
+    def sniff_display_check(body: dict = Body(...)):
+        err = sdisplay.check(body.get("expr", ""))
+        return {"ok": err is None, "error": err}
+
+    @app.get("/api/sniff/view")
+    def sniff_view(src: str = "live", filter: str = "", after: int = 0, limit: int = 400):
+        kind, o = _wb_source(src)
+        f = _wb_filter(filter)
+        limit = max(1, min(limit, 1000))
+        return o.view(f, after, limit) if kind == "live" else o.view(f, after, limit)
+
+    @app.get("/api/sniff/flows")
+    def sniff_flows(src: str = "live"):
+        kind, o = _wb_source(src)
+        return {"flows": o.flows() if kind == "live" else o.an.flow_rows()}
+
+    @app.get("/api/sniff/summary")
+    def sniff_summary(src: str = "live", filter: str = ""):
+        kind, o = _wb_source(src)
+        pred = sdisplay.compile_filter(_wb_filter(filter))
+        rows = [r for r in (o.all_rows() if kind == "live" else o.rows) if pred(r)]
+        return {"protocols": swb.protocol_counts(rows), "timing": swb.timing(rows)}
+
     @app.get("/api/sniff/packet/{n}")
-    def sniff_packet(n: int):
-        s = st.runs.sniff
-        d = s.detail(n) if s else None
+    def sniff_packet(n: int, src: str = "live"):
+        kind, o = _wb_source(src)
+        d = o.detail(n)
         if not d:
             raise HTTPException(404, "That packet is no longer in the live view.")
         return d
+
+    @app.post("/api/sniff/save-shown")
+    def sniff_save_shown(body: dict = Body(...)):
+        """Write only the packets the display filter shows into a new pcapng and send it. For a saved capture it can also be kept with the result."""
+        from fastapi.responses import FileResponse
+        from starlette.background import BackgroundTask
+        src = body.get("src") or "live"
+        f = _wb_filter(body.get("filter", ""))
+        kind, o = _wb_source(src)
+        paths = o.capture_paths() if kind == "live" else o.paths
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        keep = bool(body.get("keep")) and src.startswith("run:")
+        if keep:
+            sm = _cap_files(int(src[4:]))
+            dest = os.path.join(sm["location"], f"shown-{stamp}.pcapng")
+        else:
+            import tempfile
+            fd, dest = tempfile.mkstemp(prefix="shown-", suffix=".pcapng")
+            os.close(fd)
+        seen, kept = swb.save_filtered(paths, f, dest)
+        if not kept:
+            try:
+                os.remove(dest)
+            except OSError:
+                pass
+            raise HTTPException(409, "No packet matches the display filter, so there is nothing to save.")
+        if keep:
+            rid = int(src[4:])
+            r = st.store.get_run(rid)
+            sm = dict(r["summary"])
+            sm["files"] = [x for x in sm["files"] if x["name"] != os.path.basename(dest)] + [{"name": os.path.basename(dest), "bytes": os.path.getsize(dest)}]
+            st.store.update_summary(rid, sm)
+            return {"ok": True, "name": os.path.basename(dest), "packets": kept, "read": seen, "bytes": os.path.getsize(dest)}
+        return FileResponse(dest, filename=f"shown-{stamp}.pcapng", media_type="application/octet-stream", headers={"X-Packets": str(kept), "X-Read": str(seen), "Access-Control-Expose-Headers": "X-Packets, X-Read"},
+                            background=BackgroundTask(lambda: os.path.exists(dest) and os.remove(dest)))
 
     def _cap_files(rid: int):
         r = st.store.get_run(rid)

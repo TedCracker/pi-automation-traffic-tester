@@ -3,18 +3,21 @@ export const S = {
   status: null, profiles: [], sel: null, wizard: { step: 1, overrides: {}, port: 'auto', checks: null },
   live: { running: false, state: null, xs: [], rtt: [], lost: [], thr: 60, txBits: [], rxBits: [], link: 'idle', lastEvent: '', done: null, runId: null, runIds: [], profile: null, info: null, legs: [], legsFor: '', legStates: {} },
   ws: null, wsOk: false,
-  gen: { xs: [], tx: [], rx: [], lat: [], jit: [], last: null },
+  gen: { xs: [], tx: [], rx: [], lat: [], jit: [], sr: {}, sl: {}, last: null },
   sniff: { xs: [], pps: [], mbps: [], rows: [], last: null, serial: false },
 };
+// a test set = a generator test with `gen.testset.enabled` (applications with targets, run alone / together / plus fill)
+export const isTestset = p => !!(p && p.kind === 'generator' && p.gen && p.gen.testset && p.gen.testset.enabled);
 const subs = new Set();
 export const onLive = f => { subs.add(f); return () => subs.delete(f); };
 export const emitLive = e => subs.forEach(f => f(e));
 
 export function resetLive(profile, runId, runIds) {
   S.mbA = null; S.mbB = null;
-  S.gen = { xs: [], tx: [], rx: [], lat: [], jit: [], last: null };
+  S.gen = { xs: [], tx: [], rx: [], lat: [], jit: [], sr: {}, sl: {}, last: null };
   S.sniff = { xs: [], pps: [], mbps: [], rows: [], last: null, serial: false };
   Object.assign(S.live, { running: true, state: null, xs: [], rtt: [], lost: [], thr: profile ? profile.threshold_ms : 60, txBits: [], rxBits: [], link: 'ok', lastEvent: 'Test starting…', done: null, runId, runIds: runIds && runIds.length ? runIds : [runId], profile, legs: [], legsFor: '', legStates: {}, marks: [], lamp: null, sinceView: true, pickLeg: null });
+  if (typeof document !== 'undefined') document.dispatchEvent(new Event('tt-run-started'));
 }
 
 export function connectWS() {
@@ -93,7 +96,8 @@ function handle(e) {
     case 'stall': L.lastEvent = 'TCP session stalled — reconnecting'; L.link = 'down'; break;
     case 'gstate': {
       const g = S.gen; g.last = e; g.xs.push(e.elapsed_s); g.tx.push(e.tx_mbps); g.rx.push(e.rx_mbps); g.lat.push(e.lat_ms ?? null); g.jit.push(e.jitter_ms ?? null);
-      if (g.xs.length > 3000) { for (const k of ['xs', 'tx', 'rx', 'lat', 'jit']) g[k].shift(); }
+      for (const x of (e.streams_now || [])) { (g.sr[x.i] ||= []).push(x.on ? x.rx_mbps : null); (g.sl[x.i] ||= []).push(x.on ? (x.lat_ms ?? null) : null); }
+      if (g.xs.length > 3000) { for (const k of ['xs', 'tx', 'rx', 'lat', 'jit']) g[k].shift(); for (const k in g.sr) { g.sr[k].shift(); g.sl[k].shift(); } }
       L.running = true; L.link = e.lost ? 'lost' : 'ok'; break;
     }
     case 'sstate': { const g = S.sniff; g.last = e; g.xs.push(e.elapsed_s); g.pps.push(e.pps); g.mbps.push(e.mbps); if (g.xs.length > 3000) { for (const k of ['xs', 'pps', 'mbps']) g[k].shift(); } L.running = true; break; }

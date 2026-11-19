@@ -185,8 +185,15 @@ class SerialTap:
                 self.pcap_rtu.write(0, t_first, data, comment)
             iso = dt.datetime.fromtimestamp(t_first / 1e9).isoformat(timespec="microseconds")
             self.csv.writerow([iso, t_first, self.channels[ch]["name"], proto, kind, len(data), "ok" if ok else "FAIL", data.hex(), d["summary"]])
+            prev_t, self._row_t = getattr(self, "_row_t", None), t_first
+            resp = None
+            if from_a:                                           # a request from the master side: the next frame the other way is its response
+                self._pend_ns = getattr(self, "_pend_ns", None) or t_last
+            elif getattr(self, "_pend_ns", None):
+                resp, self._pend_ns = round((t_first - self._pend_ns) / 1e6, 3), None
             row = {"n": n, "t_ns": t_first, "channel": ch, "channel_name": self.channels[ch]["name"], "proto": proto, "kind": kind, "len": len(data), "crc_ok": ok,
-                   "hex": data[:64].hex(), "info": d["summary"], "fields": d.get("fields", {})}
+                   "hex": data[:256].hex(), "info": d["summary"], "fields": d.get("fields", {}), "errors": 0 if ok and not d.get("error") else 1, "crc_bad": not ok,
+                   "resp_ms": resp, "delta_ms": resp if resp is not None else (round((t_first - prev_t) / 1e6, 3) if prev_t else 0.0), "flow": "serial", "dir": "→" if from_a else "←"}
             self.rows.append(row)
             if len(self.rows) > 2000:
                 del self.rows[:500]

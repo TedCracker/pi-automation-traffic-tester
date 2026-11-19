@@ -7,7 +7,7 @@ import time
 from collections import Counter
 from typing import Dict, Iterable, List, Optional
 
-from . import dnp3, modbus, pcapng
+from . import dnp3, modbus, pcapng, protocols
 
 ETHERTYPES = {0x0800: "IPv4", 0x0806: "ARP", 0x86DD: "IPv6", 0x8100: "VLAN", 0x88B8: "GOOSE", 0x88BA: "SV", 0x88CC: "LLDP", 0x88B5: "Generator", 0x8847: "MPLS", 0x0842: "WoL", 0x88F7: "PTP"}
 
@@ -21,36 +21,44 @@ def _tcp_flags(f: int) -> str:
 
 
 def decode_ethernet(d: bytes) -> dict:
-    r = {"proto": "Ethernet", "src": "", "dst": "", "info": "", "len": len(d), "app": None, "vlan": None, "errors": 0}
+    r = {"proto": "Ethernet", "src": "", "dst": "", "info": "", "len": len(d), "app": None, "vlan": None, "errors": 0, "rng": {"Ethernet": [0, min(14, len(d))]}}
     if len(d) < 14:
         r.update(proto="Malformed", info="frame shorter than an Ethernet header", errors=1)
         return r
     r["dst"], r["src"] = mac(d[0:6]), mac(d[6:12])
+    r["dmac"], r["smac"] = r["dst"], r["src"]
     et, off = struct.unpack(">H", d[12:14])[0], 14
     if et == 0x8100 and len(d) >= 18:
         tci = struct.unpack(">H", d[14:16])[0]
         r["vlan"] = {"id": tci & 0xFFF, "prio": tci >> 13}
+        r["rng"]["802.1Q VLAN"] = [14, 18]
         et, off = struct.unpack(">H", d[16:18])[0], 18
     r["ethertype"] = et
     r["proto"] = ETHERTYPES.get(et, f"0x{et:04X}")
     if et == 0x0806 and len(d) >= off + 28:
         op = struct.unpack(">H", d[off + 6:off + 8])[0]
         sip, tip = ".".join(str(x) for x in d[off + 14:off + 18]), ".".join(str(x) for x in d[off + 24:off + 28])
-        r.update(src=sip, dst=tip, info=("who has %s? tell %s" % (tip, sip)) if op == 1 else f"{sip} is at {mac(d[off + 8:off + 14])}")
+        r.update(sip=sip, dip=tip, src=sip, dst=tip, info=("who has %s? tell %s" % (tip, sip)) if op == 1 else f"{sip} is at {mac(d[off + 8:off + 14])}")
     elif et == 0x0800 and len(d) >= off + 20:
         ihl = (d[off] & 15) * 4
         proto, src, dst = d[off + 9], ".".join(str(x) for x in d[off + 12:off + 16]), ".".join(str(x) for x in d[off + 16:off + 20])
-        r.update(src=src, dst=dst)
+        r.update(src=src, dst=dst, sip=src, dip=dst, ttl=d[off + 8], l4="ip")
+        r["rng"]["IPv4"] = [off, min(off + ihl, len(d))]
         p, tt = d[off + ihl:], d[off + 8]
+        pay0 = off + ihl
         if proto == 6 and len(p) >= 20:
             sp, dp, seq, ack, doff, fl = struct.unpack(">HHIIBB", p[:14])
-            payload = p[(doff >> 4) * 4:]
-            r.update(proto="TCP", src=f"{src}:{sp}", dst=f"{dst}:{dp}", info=f"{sp} → {dp} [{_tcp_flags(fl)}] len {len(payload)}")
-            _app(r, payload, sp, dp, True)
+            hl = (doff >> 4) * 4
+            payload = p[hl:]
+            r.update(proto="TCP", src=f"{src}:{sp}", dst=f"{dst}:{dp}", sport=sp, dport=dp, l4="tcp", tcp={"seq": seq, "ack": ack, "flags": fl, "plen": len(payload)},
+                     info=f"{sp} → {dp} [{_tcp_flags(fl)}] seq {seq} len {len(payload)}")
+            r["rng"]["TCP"] = [pay0, min(pay0 + hl, len(d))]
+            _app(r, payload, sp, dp, True, pay0 + hl)
         elif proto == 17 and len(p) >= 8:
             sp, dp, ln = struct.unpack(">HHH", p[:6])
-            r.update(proto="UDP", src=f"{src}:{sp}", dst=f"{dst}:{dp}", info=f"{sp} → {dp} len {len(p) - 8}")
-            _app(r, p[8:], sp, dp, False)
+            r.update(proto="UDP", src=f"{src}:{sp}", dst=f"{dst}:{dp}", sport=sp, dport=dp, l4="udp", info=f"{sp} → {dp} len {len(p) - 8}")
+            r["rng"]["UDP"] = [pay0, min(pay0 + 8, len(d))]
+            _app(r, p[8:], sp, dp, False, pay0 + 8)
         elif proto == 1:
             r.update(proto="ICMP", info=f"type {p[0] if p else '?'}")
         else:
@@ -61,29 +69,46 @@ def decode_ethernet(d: bytes) -> dict:
         nh = d[off + 6]
         r.update(src=":".join("%x" % x for x in struct.unpack(">8H", d[off + 8:off + 24])), dst=":".join("%x" % x for x in struct.unpack(">8H", d[off + 24:off + 40])),
                  proto={6: "TCP", 17: "UDP", 58: "ICMPv6"}.get(nh, "IPv6"))
+        r["sip"], r["dip"] = r["src"], r["dst"]
     elif et == 0x88B8 and len(d) >= off + 8:
-        appid = struct.unpack(">H", d[off:off + 2])[0]
+        appid, glen = struct.unpack(">HH", d[off:off + 4])
         r.update(info=f"GOOSE APPID 0x{appid:04X}")
-        try:
-            from ..goose import pdu_decode
-            p = pdu_decode(d[off + 8:])
-            r["info"] = f"GOOSE 0x{appid:04X} {p['gocb']} stNum {p['st']} sqNum {p['sq']}"
-        except Exception:
-            pass
+        dd = protocols.decode_goose(d[off + 8:off + max(glen, 8)], appid)
+        if dd:
+            r.update(info=dd["summary"], app=dd)
+            r["rng"]["GOOSE"] = [off, len(d)]
+        else:
+            r.update(info=f"GOOSE 0x{appid:04X} (could not be decoded)", errors=1)
+    elif et == 0x88F7 and len(d) > off + 33:
+        dd = protocols.decode_ptp(d[off:])
+        if dd:
+            r.update(info=dd["summary"], app=dd)
+            r["rng"]["PTP"] = [off, len(d)]
     if r["vlan"]:
         r["info"] = f"VLAN {r['vlan']['id']} prio {r['vlan']['prio']}  " + r["info"]
     return r
 
 
-def _app(r: dict, payload: bytes, sp: int, dp: int, tcp: bool) -> None:
+def _app(r: dict, payload: bytes, sp: int, dp: int, tcp: bool, off: int = 0) -> None:
+    dd = None
+    if not payload:
+        return
     if (20000 in (sp, dp)) and payload[:2] == dnp3.START:
         dd = dnp3.decode_frame(payload[:dnp3.frame_len(payload[2])] if len(payload) > 2 else payload)
-        r.update(proto="DNP3", info=dd["summary"], app=dd)
-        r["errors"] += 0 if dd["crc_ok"] else 1
     elif tcp and 502 in (sp, dp):
         dd = modbus.decode_mbap(payload)
-        if dd:
-            r.update(proto="Modbus/TCP", info=dd["summary"], app=dd)
+    elif tcp and 2404 in (sp, dp):
+        dd = protocols.decode_iec104(payload)
+    elif not tcp and (161 in (sp, dp) or 162 in (sp, dp)):
+        dd = protocols.decode_snmp(payload)
+    elif not tcp and (319 in (sp, dp) or 320 in (sp, dp)):
+        dd = protocols.decode_ptp(payload)
+    elif not tcp and 102 in (sp, dp):
+        dd = protocols.decode_rgoose(payload)
+    if dd:
+        r.update(proto=dd["proto"], info=dd["summary"], app=dd)
+        r["errors"] += 0 if dd["crc_ok"] else 1
+        r["rng"][dd["proto"]] = [off, off + len(payload)]
 
 
 def decode_radiotap(d: bytes) -> dict:
@@ -182,6 +207,7 @@ def summarize_files(paths: Iterable[str], max_packets: int = 3_000_000, max_seco
     crc_fail = crc_ok_n = 0
     dnp3_n = mb_n = 0
     func_count: Counter = Counter()
+    decoded: Counter = Counter()
     truncated = False
     vlans: Counter = Counter()
     for path in paths:
@@ -215,15 +241,17 @@ def summarize_files(paths: Iterable[str], max_packets: int = 3_000_000, max_seco
                     crc_fail += 1
                 app = r.get("app")
                 if app:
+                    decoded[app["proto"]] += 1
+                    classic = app["proto"].startswith(("DNP3", "Modbus"))
                     if app["proto"].startswith("DNP3"):
                         dnp3_n += 1
-                    else:
+                    elif app["proto"].startswith("Modbus"):
                         mb_n += 1
-                    if app["crc_ok"]:
+                    if classic and app["crc_ok"]:
                         crc_ok_n += 1
-                    elif "crc=FAIL" not in p["comment"]:
+                    elif classic and "crc=FAIL" not in p["comment"]:
                         crc_fail += 1
-                    func_count[f"{app['proto']}: {app['summary'].split('|')[1].strip().split(' ')[0] if '|' in app['summary'] else app.get('kind', '')}"] += 1
+                    func_count[f"{app['proto']}: {app['summary'].split('|')[1].strip().split(' ')[0] if classic and '|' in app['summary'] else app.get('kind', '')}"] += 1
                 if r["proto"] == "802.11" and r.get("ssid") is not None and r.get("bssid"):
                     k = r["bssid"]
                     e = nets.setdefault(k, {"bssid": k, "ssid": r["ssid"], "channel": r.get("channel"), "signal": r.get("signal"), "beacons": 0})
@@ -239,7 +267,7 @@ def summarize_files(paths: Iterable[str], max_packets: int = 3_000_000, max_seco
             "protocols": dict(proto.most_common(15)),
             "top_talkers": [{"pair": k, "bytes": v, "packets": talker_pk[k]} for k, v in talkers.most_common(8)],
             "errors": errors, "crc_failures": crc_fail, "crc_ok": crc_ok_n, "dnp3_frames": dnp3_n, "modbus_frames": mb_n,
-            "functions": dict(func_count.most_common(12)), "vlans": dict(vlans),
+            "functions": dict(func_count.most_common(12)), "vlans": dict(vlans), "decoded": dict(decoded),
             "max_gap_ms": round(max_gap / 1e6, 3), "first_packet_ns": t_first, "last_packet_ns": t_last,
             "wifi_networks": sorted(nets.values(), key=lambda x: (x["channel"] or 0, -(x["signal"] or -200)))[:60],
             "truncated": truncated}
@@ -259,19 +287,31 @@ def layers(data: bytes, linktype: int) -> List[dict]:
             out.append({"name": r["app"]["proto"], "fields": r["app"].get("fields", {})})
         return out
     r = decode_ethernet(data)
-    out.append({"name": "Ethernet", "fields": {"Destination": r["dst"], "Source": r["src"], "Type": r["proto"] if r.get("ethertype") is None else f"0x{r.get('ethertype', 0):04X} ({ETHERTYPES.get(r.get('ethertype'), '?')})"}})
+    rng = r.get("rng", {})
+
+    def add(name: str, fields: dict, key: Optional[str] = None) -> None:
+        d = {"name": name, "fields": fields}
+        if (key or name) in rng:
+            d["range"] = rng[key or name]
+        out.append(d)
+    add("Ethernet", {"Destination": r["dst"] if r.get("dmac") is None else r["dmac"], "Source": r["src"] if r.get("smac") is None else r["smac"],
+                     "Type": r["proto"] if r.get("ethertype") is None else f"0x{r.get('ethertype', 0):04X} ({ETHERTYPES.get(r.get('ethertype'), '?')})"})
     if r.get("vlan"):
-        out.append({"name": "802.1Q VLAN", "fields": {"VLAN id": r["vlan"]["id"], "Priority": r["vlan"]["prio"]}})
-    ip4 = r.get("ethertype") == 0x0800
+        add("802.1Q VLAN", {"VLAN id": r["vlan"]["id"], "Priority": r["vlan"]["prio"]})
     off = 18 if r.get("vlan") else 14
-    if ip4 and r["proto"] in ("TCP", "UDP", "ICMP", "IPv4", "DNP3", "Modbus/TCP") and len(data) > 34:
-        out.append({"name": "IPv4", "fields": {"Source": r["src"].split(":")[0], "Destination": r["dst"].split(":")[0], "TTL": data[off + 8], "Protocol": data[off + 9], "Length": len(data) - off}})
+    if r.get("ethertype") == 0x0800 and "IPv4" in rng and len(data) > 34:
+        add("IPv4", {"Source": r["sip"], "Destination": r["dip"], "TTL": data[off + 8], "Protocol": data[off + 9], "Length": len(data) - off})
     elif r.get("ethertype") == 0x86DD and r["proto"] in ("TCP", "UDP"):                      # decode_ethernet only names these with a full 40-byte IPv6 header
-        out.append({"name": "IPv6", "fields": {"Source": r["src"], "Destination": r["dst"], "Hop limit": data[off + 7], "Next header": f"{data[off + 6]} ({r['proto']})", "Length": len(data) - off}})
-    if ip4 and r["proto"] in ("TCP", "DNP3", "Modbus/TCP", "UDP"):
-        out.append({"name": "Ports", "fields": {"Source": r["src"], "Destination": r["dst"], "Info": r["info"]}})
+        add("IPv6", {"Source": r["src"], "Destination": r["dst"], "Hop limit": data[off + 7], "Next header": f"{data[off + 6]} ({r['proto']})", "Length": len(data) - off})
+        rng["IPv6"] = [off, off + 40]
+        out[-1]["range"] = rng["IPv6"]
+    if r.get("l4") == "tcp":
+        t = r["tcp"]
+        add("TCP", {"Source port": r["sport"], "Destination port": r["dport"], "Sequence": t["seq"], "Acknowledgement": t["ack"], "Flags": _tcp_flags(t["flags"]), "Payload bytes": t["plen"]})
+    elif r.get("l4") == "udp":
+        add("UDP", {"Source port": r["sport"], "Destination port": r["dport"], "Payload bytes": len(data) - rng["UDP"][1]})
     if r.get("app"):
-        out.append({"name": r["app"]["proto"], "fields": r["app"].get("fields", {})})
+        add(r["app"]["proto"], {"Summary": r["app"].get("summary", ""), **r["app"].get("fields", {})} if "Summary" not in r["app"].get("fields", {}) else r["app"].get("fields", {}))
     elif r["proto"] not in ("TCP", "UDP"):
-        out.append({"name": r["proto"], "fields": {"Info": r["info"]}})
+        add(r["proto"], {"Info": r["info"]})
     return out

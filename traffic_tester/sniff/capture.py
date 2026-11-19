@@ -12,7 +12,7 @@ import time
 from collections import Counter
 from typing import Dict, List, Optional
 
-from . import analyze, bpf as bpfmod, pcapng
+from . import analyze, bpf as bpfmod, display, pcapng, workbench
 
 
 class CaptureError(Exception):
@@ -267,7 +267,8 @@ class Capture:
 class LiveFeeder(threading.Thread):
     """Best-effort live view: a second short-snaplen capture streamed as pcapng into a bounded decoder (never slows the file capture)."""
 
-    MAX_DECODE_PER_SEC = 300
+    MAX_DECODE_PER_SEC = 400
+    KEEP_ROWS = 20000                       # newest packets the list can scroll through (the saved file always has everything)
 
     def __init__(self, interfaces: List[str], bpf: str = ""):
         super().__init__(name="live-feeder", daemon=True)
@@ -277,6 +278,7 @@ class LiveFeeder(threading.Thread):
         self.stop_evt = threading.Event()
         self.lock = threading.Lock()
         self.rows: List[dict] = []
+        self.an = workbench.Analyzer()
         self.n = 0
         self.seen = self.decoded = 0
         self.bytes = 0
@@ -290,7 +292,7 @@ class LiveFeeder(threading.Thread):
         if not self.tools["dumpcap"]:
             self.error = "Live view needs dumpcap (apt install tshark)."
             return
-        cmd = [self.tools["dumpcap"], "-q", "-n", "-B", "4", "-s", "256"]
+        cmd = [self.tools["dumpcap"], "-q", "-n", "-B", "4", "-s", "512"]
         for i in self.interfaces:
             cmd += ["-i", i]
         if self.bpf:
@@ -317,29 +319,46 @@ class LiveFeeder(threading.Thread):
                 if self._budget <= 0:
                     continue
                 self._budget -= 1
-                try:
-                    r = analyze.decode_packet(p["data"], p["linktype"])
-                except Exception:  # noqa - one undecodable packet must not end the live view
-                    r = analyze.malformed(p["data"])
-                self.decoded += 1
                 with self.lock:
-                    self.proto[r["proto"]] += 1
-                    self.n += 1
-                    row = {"n": self.n, "t_ns": p["ts_ns"], "iface": p["name"], "proto": r["proto"], "src": r["src"], "dst": r["dst"], "len": p["orig_len"], "info": r["info"],
-                           "errors": r.get("errors", 0), "linktype": p["linktype"]}
+                    row = self.an.add(p["ts_ns"], p["data"], p["linktype"], "", p["name"], p["orig_len"])
+                    self.decoded += 1
+                    self.proto[row["proto"]] += 1
+                    self.n = row["n"]
                     self.rows.append(row)
-                    self.data[self.n] = p["data"][:256]
-                    if len(self.rows) > 1500:
-                        for old in self.rows[:300]:
+                    self.data[row["n"]] = p["data"][:workbench.DATA_KEEP]
+                    if len(self.rows) > self.KEEP_ROWS:
+                        for old in self.rows[:4000]:
                             self.data.pop(old["n"], None)
-                        del self.rows[:300]
+                        del self.rows[:4000]
 
     def live(self, since: int = 0) -> dict:
         with self.lock:
-            rows = [r for r in self.rows if r["n"] > since][-300:]
+            rows = [r for r in self.rows[-400:] if r["n"] > since][-300:]
             protocols = dict(self.proto.most_common(10))
         return {"n": self.n, "rows": rows, "seen": self.seen, "decoded": self.decoded, "bytes": self.bytes, "protocols": protocols, "error": self.error,
                 "sampling": self.seen > self.decoded}
+
+    def view(self, filt: str = "", after: int = 0, limit: int = 400, tail: bool = True) -> dict:
+        """The list for the workbench: rows matching the display filter. After a number = what is new; first call (after 0) = the newest rows."""
+        pred = display.compile_filter(filt)
+        with self.lock:
+            snap = list(self.rows)
+        shown = [r for r in snap if pred(r)]
+        page = [r for r in shown if r["n"] > after]
+        if tail and after == 0:
+            page = page[-limit:]
+        else:
+            page = page[:limit]
+        return {"rows": page, "total": self.n, "buffered": len(snap), "shown": len(shown), "errors": sum(1 for r in shown if r["errors"]), "sampling": self.seen > self.decoded,
+                "seen": self.seen, "decoded": self.decoded, "first_n": snap[0]["n"] if snap else 0}
+
+    def flows(self) -> List[dict]:
+        with self.lock:
+            return self.an.flow_rows()
+
+    def snapshot_rows(self) -> List[dict]:
+        with self.lock:
+            return list(self.rows)
 
     def detail(self, n: int) -> Optional[dict]:
         with self.lock:
@@ -347,7 +366,7 @@ class LiveFeeder(threading.Thread):
             data = self.data.get(n)
         if not row or data is None:
             return None
-        return {**row, "hex": data.hex(), "layers": analyze.layers(data, row["linktype"])}
+        return workbench.packet_detail(row, data)
 
     def stop(self) -> None:
         self.stop_evt.set()

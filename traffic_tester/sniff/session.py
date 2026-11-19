@@ -9,7 +9,7 @@ import time
 from typing import Callable, Dict, List, Optional
 
 from .. import system
-from . import analyze, bpf as bpfmod, builtin_wifi, capture as cap, preflight as pre
+from . import analyze, bpf as bpfmod, builtin_wifi, capture as cap, display, preflight as pre, workbench
 from .serialtap import SerialTap
 
 
@@ -57,10 +57,53 @@ class SnifferRun:
             return {**self.feeder.live(since), "mode": self.cfg["mode"]}
         return {"n": 0, "rows": [], "mode": self.cfg["mode"]}
 
+    def view(self, filt: str = "", after: int = 0, limit: int = 400) -> dict:
+        """Rows for the workbench list, through the display filter."""
+        if self.tap:
+            pred = display.compile_filter(filt)
+            with self.tap.lock:
+                snap = list(self.tap.rows)
+                total = self.tap.n
+            shown = [r for r in snap if pred(r)]
+            page = [r for r in shown if r["n"] > after]
+            page = page[-limit:] if after == 0 else page[:limit]
+            return {"rows": [{k: v for k, v in r.items() if k not in ("fields", "hex")} for r in page], "total": total, "buffered": len(snap), "shown": len(shown),
+                    "errors": sum(1 for r in shown if r.get("errors")), "sampling": False, "mode": "serial", "first_n": snap[0]["n"] if snap else 0}
+        if self.feeder:
+            return {**self.feeder.view(filt, after, limit), "mode": self.cfg["mode"]}
+        return {"rows": [], "total": 0, "buffered": 0, "shown": 0, "errors": 0, "mode": self.cfg["mode"]}
+
+    def flows(self) -> List[dict]:
+        if self.tap:
+            with self.tap.lock:
+                return workbench.serial_flows(list(self.tap.rows))
+        return self.feeder.flows() if self.feeder else []
+
+    def all_rows(self) -> List[dict]:
+        if self.tap:
+            with self.tap.lock:
+                return list(self.tap.rows)
+        return self.feeder.snapshot_rows() if self.feeder else []
+
+    def capture_paths(self) -> List[str]:
+        """The pcapng files written so far (the file being written is readable: a half-written last block is skipped)."""
+        if self.tap:
+            try:
+                self.tap.pcap.flush()                         # the serial tap flushes once a second at most: make the newest frames readable now
+            except Exception:  # noqa
+                pass
+            return [os.path.join(self.location, f) for f in sorted(os.listdir(self.location)) if f.endswith((".pcapng", ".pcap")) and "tap-rtu" not in f and not f.startswith("shown-")]
+        if self.capture:
+            try:
+                return [f for f in self.capture.files() if f.endswith((".pcapng", ".pcap"))]
+            except Exception:  # noqa
+                return []
+        return []
+
     def detail(self, n: int) -> Optional[dict]:
         if self.tap:
             r = next((r for r in self.tap.rows if r["n"] == n), None)
-            return None if r is None else {**r, "layers": [{"name": r["proto"], "fields": r["fields"] or {"Summary": r["info"]}}], "hex": r["hex"]}
+            return None if r is None else workbench.serial_detail(r)
         return self.feeder.detail(n) if self.feeder else None
 
     # ------------------------------------------------------------ storage

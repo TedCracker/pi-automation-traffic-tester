@@ -67,18 +67,18 @@ try:
             pdf422 = http(P, "GET", "/api/report.pdf", raw=True)[0]
             check(f"{tag}every read endpoint answers 200 ({len(GETS)} checked); the PDF endpoint without run ids says 422, not a crash", not bad and pdf422 == 422, f"{bad} pdf={pdf422}")
             code, html = http(P, "GET", "/", raw=True)
-            assets = [a for a in ("app.js", "ui.js", "state.js", "endpoints.js", "setup.js", "run.js", "monitor.js", "results.js", "generator.js", "sniffer.js", "settings.js", "style.css") if http(P, "GET", f"/{a}", raw=True)[0] != 200] + [a for a in ("vendor/uPlot.min.js", "vendor/uPlot.min.css") if http(P, "GET", f"/{a}", raw=True)[0] != 200]
+            assets = [a for a in ("app.js", "ui.js", "state.js", "endpoints.js", "setup.js", "run.js", "monitor.js", "results.js", "generator.js", "sniffer.js", "config.js", "home.js", "transport.js", "style.css") if http(P, "GET", f"/{a}", raw=True)[0] != 200] + [a for a in ("vendor/uPlot.min.js", "vendor/uPlot.min.css") if http(P, "GET", f"/{a}", raw=True)[0] != 200]
             check(f"{tag}web page and all static files are served (title, no missing asset)", code == 200 and b"Pi Automation Traffic Tester" in html and not assets, f"missing={assets}")
             ctx = br.new_context(viewport={"width": 1280, "height": 860}); pg = ctx.new_page()
             errs = []
             pg.on("pageerror", lambda e, errs=errs: errs.append(str(e))); pg.on("console", lambda m, errs=errs: errs.append(m.text) if m.type == "error" else None)
-            pg.goto(f"http://127.0.0.1:{P}/"); pg.wait_for_selector("[data-tab=setup]")
+            pg.goto(f"http://127.0.0.1:{P}/"); pg.wait_for_selector("[data-tab=tests]")
             seen = {}
-            for tab in ("setup", "run", "results", "generator", "sniffer", "settings"):
-                pg.click(f"[data-tab={tab}]"); pg.wait_for_selector(f"[data-tab={tab}][aria-selected=true]"); time.sleep(0.6)
+            for tab in ("home", "tests", "results", "generator", "sniffer", "config"):
+                pg.locator(f"[data-tab={tab}]:visible").first.click(); pg.wait_for_selector(f"[data-tab={tab}][aria-selected=true]"); time.sleep(0.6)
                 seen[tab] = len(pg.inner_text("#main").strip())
             check(f"{tag}all 6 screens open and render content in a real browser, zero console/page errors", all(v > 30 for v in seen.values()) and not errs, f"text sizes={seen} errors={errs[:3]}")
-            pg.click("[data-tab=setup]"); time.sleep(0.5)
+            pg.click("[data-tab=tests]"); time.sleep(0.5)
             top = pg.inner_text("header.top")
             check(f"{tag}top bar: only the Pi's name (no role label), window title says the name; Setup has no Responder card", pname in pg.inner_text("[data-testid=top-pi-name]") and pg.title() == f"{pname} · Pi Automation Traffic Tester" and not re.search(r"Pi [AB]\b|Responder|(?<!Traffic )Tester", top) and pg.locator("#respCard").count() == 0, f"title={pg.title()!r} top={top[:90]!r}")
             # sniffer tab: presets incl. the built-in Wi-Fi (Nexmon) one, warning + acknowledgement + restore button
@@ -91,7 +91,8 @@ try:
             pg.click(".pcard:has-text('Inline Ethernet tap') >> nth=0"); time.sleep(0.4)
             check(f"{tag}Ethernet inline tap and SPAN stay selectable next to Wi-Fi (capture sources: inline, SPAN, serial, Wi-Fi)", all(pg.locator(f".pcard:has-text('{t}')").count() >= 1 for t in ("Inline Ethernet tap", "SPAN port", "RS-485", "RS-232", "Wi-Fi")), "")
             pg.click("[data-tab=generator]"); time.sleep(0.5)
-            check(f"{tag}Generator tab shows its preset cards", pg.locator(".pcard").count() >= 3, f"{pg.locator('.pcard').count()} cards")
+            pg.click("[data-testid=gen-more]"); pg.wait_for_selector("[data-testid=gen-presets] .pcard"); time.sleep(0.3)
+            check(f"{tag}Generator tab: the ⋯ sheet lists its preset cards", pg.locator("[data-testid=gen-presets] .pcard").count() >= 3, f"{pg.locator('[data-testid=gen-presets] .pcard').count()} cards"); pg.keyboard.press("Escape")
             ctx.close()
             # sessions, profile and settings actions through the API
             sc, ses = http(P, "POST", "/api/sessions", {"name": f"sweep {role}"})
