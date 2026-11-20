@@ -2,6 +2,11 @@
 
 One entry per version, newest first. The About page, "Check online" and the release notes are all built from this file.
 
+## 1.12.3 — 2026-11-19
+- **Mirrored Bits tests now default to the Timed message format.** New Mirrored Bits tests and the built-in "DER trip — Mirrored Bits mode" send numbered, time-stamped messages: the round trip of every message (about 12,000 numbers a minute instead of about 200), and lost, out-of-order and corrupted messages are counted separately (it found the cell link reordering messages in one direction). The 60 ms limit is held against half the round trip, labelled as an estimate (a true one-way time needs GPS time).
+- **A clear two-option choice in the test settings:** "Timed (recommended)" or "Real Mirrored Bits load" (nonstop like a relay channel: shows whether the channel stays up, ROK / RBAD / CBAD). Tests you saved earlier keep the format they had. The result, the Results page and the PDF report say which format was used.
+- The AI guide, the info panel and the Mirrored Bits spec were updated.
+
 ## 1.12.2 — 2026-11-19
 - **Mirrored Bits round trip is right over the Orbit radios.** A cellular link sometimes delivers old serial data late or twice. The echo bit took that for its own edge coming back, so the round trip showed impossible values (0.04 to 30 ms on a link that really takes about 200 ms) and the RTT alarm kept flipping. Now a returned echo only counts once it has held; a brief flip back is ignored and counted. The result says how many times the link replayed old data. Bench (null-modem) results are unchanged.
 

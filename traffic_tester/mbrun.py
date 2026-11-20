@@ -86,8 +86,8 @@ class MirroredRun:
 
     def _state(self, e: dict):
         em = self.emu
-        thr = float(self.p["threshold_ms"])
         frame = em.codec.trip_frame
+        thr = float(self.p["threshold_ms"]) * (2.0 if frame and self.p["mirrored"].get("limit_basis") == "one_way_est" else 1.0)     # the frame results are on the round-trip scale
         k = 1.0 if frame else 2.0                         # the frame codec is judged on the full round trip, the bit-echo mode on half of it
         rt = [x / k for x in em.rtt_ms[-2000:]]
         done = em.rtt_n
@@ -115,7 +115,7 @@ class MirroredRun:
         one_way_ok, why = self._one_way_ok(far_ev)
         try:
             summary = self.emu.summary(threshold_ms=p["threshold_ms"], percentile=p["rule"]["percentile"], max_loss_pct=p["rule"]["max_loss_pct"],
-                                       max_down_pct=p["mirrored"]["max_down_pct"], far=far_ev, one_way_ok=one_way_ok, far_status=far_st,
+                                       max_down_pct=p["mirrored"]["max_down_pct"], limit_basis=p["mirrored"].get("limit_basis", "round_trip"), far=far_ev, one_way_ok=one_way_ok, far_status=far_st,
                                        tol_ms=max(1.0, p["max_clock_offset_ms"]))
         except Exception as ex:  # noqa
             self.error = self.error or f"summary: {type(ex).__name__}: {ex}"
@@ -161,7 +161,7 @@ class MirroredRun:
     def _chart_rows(self):
         """Per-trip rows for the results chart (bit transfer time over the run, thinned to ~1500 points) and per-second rows for the report."""
         em = self.emu
-        thr_us = int(float(self.p["threshold_ms"]) * 1000)
+        thr_us = int(float(self.p["threshold_ms"]) * 1000 * (2 if em.codec.trip_frame and self.p["mirrored"].get("limit_basis") == "one_way_est" else 1))
         ts, rs = em.rtt_t, em.rtt_ms
         n = len(rs)
         if not n:

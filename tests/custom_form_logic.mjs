@@ -72,6 +72,7 @@ console.log('hidden-settings repair ok');
   const m = mk('MB'); m.p.mode = 'mirrored'; m.p.transport = 'serial'; C.derive(m);
   assert.equal(Object.keys(C.validate(m, [])).length, 0, 'a mirrored default is valid (no send rate to check)');
   assert.equal(m.p.frame, 'compact'); assert.deepEqual(m.p.idle_gaps_s, []);
+  m.p.mirrored.codec = 'sim';                      // this sentence is the Real Mirrored Bits load (SimCodec) one; the Timed one is checked at the end
   const ms = C.summary(m);
   assert.match(ms, /38,400 baud \(one every 1\.04 ms/); assert.match(ms, /not SEL wire-compatible/); assert.match(ms, /every 2 s a test bit is flipped/); assert.match(ms, /RBAD never asserts/); assert.ok(!/Pi A|Pi B|Responder/.test(ms), 'no fixed-role wording');
   const bad = (mut) => { const d = mk(); d.p.mode = 'mirrored'; mut(d); C.derive(d); return C.validate(d, []); };
@@ -107,4 +108,20 @@ console.log('mirrored form logic ok');
   assert.ok(E.directionReason({ ...t.p, direction: 'reverse' }, 'reverse', {}), 'a typed address cannot start a test, so "to -> from" is refused');
   assert.equal(E.directionReason({ ...t.p, direction: 'forward' }, 'forward', {}), '', 'one way from this Pi to an address is fine');
   console.log('endpoints form logic ok');
+}
+// 1.12.3: a new Mirrored Bits draft starts on the Timed format; the choice offers exactly two options; the sentence names the format and the one-way estimate
+{
+  const d = mk('MB'); d.p.mode = 'mirrored'; d.p.transport = 'serial'; C.derive(d);
+  assert.equal(d.p.mirrored.codec, 'trip', 'new Mirrored Bits tests default to the timed format');
+  assert.equal(d.p.mirrored.limit_basis, 'one_way_est');
+  let h = C.codecChoice(d);
+  assert.equal((h.match(/type="radio"/g) || []).length, 2, 'two options');
+  assert.match(h, /Timed \(recommended\)/); assert.match(h, /Real Mirrored Bits load/); assert.match(h, /tells lost, out-of-order and corrupted apart/); assert.match(h, /ROK \/ RBAD \/ CBAD/);
+  assert.match(h, /value="trip" data-k="mirrored\.codec" checked/, 'Timed is the one selected');
+  assert.doesNotMatch(h, /value="sim"[^>]*checked/);
+  assert.match(C.summary(d), /time-stamped/); assert.match(C.summary(d), /estimated as half the round trip/);
+  d.p.mirrored.codec = 'sim'; h = C.codecChoice(d);
+  assert.match(h, /value="sim" data-k="mirrored\.codec" checked/); assert.doesNotMatch(h, /value="trip"[^>]*checked/);
+  assert.match(C.summary(d), /Real Mirrored Bits load \(SimCodec\)/);
+  console.log('timed default form logic ok');
 }

@@ -952,13 +952,17 @@ def verdict(m: dict, threshold_ms: float, percentile, max_loss_pct: float, max_d
     if m.get("frame_mode"):
         rt, fr = m["rtt"], m["frames"]
         val = rt.get(key)
+        half = m.get("limit_basis") == "one_way_est"             # the limit is a ONE-WAY time: held against half the round trip (an estimate, labelled so)
+        if half and val is not None:
+            val = round(val / 2.0, 3)
         label = "The slowest frame" if key == "max" else f"{_plabel(percentile)} of frames"
         if not rt.get("n"):
             reasons.append("No round trip could be measured - check the link, the settings at both ends (PROTO A and B, TX_ID / RX_ID, baud) and that the other Pi is running.")
         elif val is None:
             reasons.append(f"Percentile {percentile} is not available for this run.")
         elif val > threshold_ms:
-            reasons.append(f"{label} needed a round trip of {val:g} ms - the limit is {threshold_ms:g} ms.")
+            reasons.append(f"{label} needed {val:g} ms one way (estimated as half the round trip) - the limit is {threshold_ms:g} ms." if half else
+                           f"{label} needed a round trip of {val:g} ms - the limit is {threshold_ms:g} ms.")
         if fr["lost_pct"] > max_loss_pct:
             reasons.append(f"{fr['lost_pct']:g} % of the frames ({fr['lost']} of {fr['good'] + fr['lost']}) never arrived as a good frame - the limit is {max_loss_pct:g} %.")
     else:
@@ -986,7 +990,8 @@ def verdict(m: dict, threshold_ms: float, percentile, max_loss_pct: float, max_d
 
 
 def _summary(self: "Emulator", threshold_ms: float = 60.0, percentile=99, max_loss_pct: float = 0.1, max_down_pct: float = 0.1,
-             far: Optional[dict] = None, one_way_ok: bool = False, tol_ms: float = 2.0, far_status: Optional[dict] = None) -> dict:
+             far: Optional[dict] = None, one_way_ok: bool = False, tol_ms: float = 2.0, far_status: Optional[dict] = None,
+             limit_basis: str = "round_trip") -> dict:
     """The test result: top-level keys follow the other tests' summaries (rtt_ms, sent, received, lost, verdict ...); summary['mirrored'] has the rest."""
     now = self._now()
     with self.lock:
@@ -1055,6 +1060,8 @@ def _summary(self: "Emulator", threshold_ms: float = 60.0, percentile=99, max_lo
         "loopback_seen": st["loopback"], "ids_seen": dict(self.ids_seen), "events_log": self.events_view(5000), "echo_changes": self.echo_changes,
         "startup_junk": self.startup_junk,
         "frame_mode": bool(self.codec.trip_frame), "frames": self.frames(),
+        "limit_basis": limit_basis if self.codec.trip_frame else None,
+        "limit_rtt_ms": (threshold_ms * 2 if limit_basis == "one_way_est" else threshold_ms) if self.codec.trip_frame else None,   # the time limit on the ROUND TRIP scale (the scale the frame results and charts use)
         "framer_resync_chars": self.framer.junk_chars if self.codec.trip_frame else None,
         "one_way_gps": "one-way needs GPS time (not built in): the one-way figures are round trip / 2" if self.codec.trip_frame else None,
         "trips_seen": len(self.flips),
@@ -1075,13 +1082,13 @@ def _summary(self: "Emulator", threshold_ms: float = 60.0, percentile=99, max_lo
         fr = m["frames"]
         rt = m["rtt"]
         sent, lost = fr["good"] + fr["lost"], fr["lost"]
-        tstats["late"] = self.rtt_hist.count_over(threshold_ms)
+        tstats["late"] = self.rtt_hist.count_over(m["limit_rtt_ms"])
         tstats = {**tstats, **{k: rt[k] for k in ("min", "p50", "p95", "p99", "p999", "max", "avg")}, "n": rt["n"]}
         tstats["loss_pct"] = fr["lost_pct"]
     s = {"sent": sent, "received": tstats["n"], "lost": lost, "loss_pct": tstats["loss_pct"], "late": tstats["late"], "over_threshold": tstats["late"],
          "over_threshold_pct": round(100.0 * tstats["late"] / sent, 4) if sent else 0.0, "duplicates": (m["frames"] or {}).get("duplicates", 0), "out_of_order": (m["frames"] or {}).get("out_of_order", 0), "stale": 0, "corrupted": (m["frames"] or {}).get("crc_errors", 0),
          "rtt_ms": {k: tstats[k] for k in ("min", "p50", "p95", "p99", "p999", "max", "avg")}, "jitter_ms": m["rtt"].get("jitter_ms"), "stddev_ms": None,
-         "threshold_ms": threshold_ms, "one_way": False, "basis": "rtt",      # the one-way figure lives in summary["mirrored"]["transfer"]
+         "threshold_ms": m["limit_rtt_ms"] if m["frame_mode"] else threshold_ms, "one_way": False, "basis": "rtt",      # the one-way figure lives in summary["mirrored"]["transfer"]
          
          "idle": {"gaps": [], "count": 0, "lost": 0, "max_ms": None, "over_threshold": 0}, "mirrored": m, "verdict": v}
     return s

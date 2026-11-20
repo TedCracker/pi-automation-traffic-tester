@@ -127,9 +127,16 @@ def _mb_latency(mb: dict, t: dict, r: dict) -> List:
                       ["", _ms(t.get("p50")), _ms(t.get("p95")), _ms(t.get("p99")), _ms(t.get("max")), _ms(t.get("threshold_ms")),
                        "one way, clocks synced" if t.get("basis") == "one_way" else "half the echo round trip"]])]
     f = mb.get("frames") or {}
-    return [_tbl([["Round trip of every frame", "min", "p50", "p95", "p99", "p99.9", "max", "jitter", "Limit"],
+    lim = mb.get("limit_rtt_ms") or t.get("threshold_ms")
+    half = mb.get("limit_basis") == "one_way_est"
+    h = lambda v: _ms(None if v is None else v / 2.0)
+    rows = [_tbl([["Round trip of every frame", "min", "p50", "p95", "p99", "p99.9", "max", "jitter", "Limit"],
                   [f"{r.get('n')} measured", _ms(r.get("min")), _ms(r.get("p50")), _ms(r.get("p95")), _ms(r.get("p99")), _ms(r.get("p999")), _ms(r.get("max")), _ms(r.get("jitter_ms")),
-                   _ms(t.get("threshold_ms"))]]),
+                   _ms(lim)]])]
+    if half:
+        rows += [Spacer(1, 3), _tbl([["One way (ESTIMATE = round trip / 2)", "min", "p50", "p95", "p99", "p99.9", "max", "", "Limit"],
+                                      ["estimated", h(r.get("min")), h(r.get("p50")), h(r.get("p95")), h(r.get("p99")), h(r.get("p999")), h(r.get("max")), "", h(lim)]])]
+    return rows + [
             Spacer(1, 3),
             _tbl([["Frames", "good", "lost", "lost %", "CRC errors", "repeated", "out of order", "outages", "longest outage"],
                   ["", f.get("good"), f.get("lost"), f.get("lost_pct"), f.get("crc_errors"), f.get("duplicates"), f.get("out_of_order"), mb.get("outage_count"),
@@ -144,7 +151,7 @@ def _mb_emulator(mb: dict) -> List:
     t, r, rej, imp = mb.get("transfer") or {}, mb.get("rtt") or {}, mb.get("rejects") or {}, mb.get("impair") or {}
     out: List = [Paragraph("Mirrored Bits channel", H3),
                  Paragraph(f"Two Mirrored Bits emulators at {mb.get('baud')} baud (PROTO {mb.get('proto')} on this Pi), one full message every {mb.get('wire_period_ms')} ms in each direction. "
-                           f"{mb.get('codec')}.", BODY),
+                           f"Message format: <b>{'Timed' if mb.get('frame_mode') else 'Real Mirrored Bits load'}</b> ({mb.get('codec')}).", BODY),
                  *_mb_latency(mb, t, r),
                  Spacer(1, 3),
                  _tbl([["ROK availability", "ROK was 0", "Longest outage", "ROK drops", "RBAD events", "CBAD events", "Lost-channel", "Echo alarms"],
@@ -242,10 +249,20 @@ def _combined_block(c: dict) -> List:
     return out
 
 
+def _mb_basis(s: dict) -> str:
+    """Banner suffix for a Mirrored Bits result: the message format and what the limit is held against."""
+    mb = s.get("mirrored") or {}
+    if not mb.get("emulator"):
+        return ""
+    if mb.get("frame_mode"):
+        return " (Timed format; one way = half the round trip, an estimate)" if mb.get("limit_basis") == "one_way_est" else " (Timed format; round trip)"
+    return " (Real Mirrored Bits load format)"
+
+
 def _trip_section(store, r) -> List:
     s, p = r["summary"] or {}, r["profile"]
     out = [Paragraph(f"{p.get('name', 'Test')} &nbsp; <font size=9 color='#5c6b7a'>(run {r['id']}, {r['started_at']})</font>", H2),
-           _banner(r["verdict"], f"&nbsp; {p.get('transport', '').upper()} - limit {p.get('threshold_ms')} ms on p{p.get('rule', {}).get('percentile', 99)}")]
+           _banner(r["verdict"], f"&nbsp; {p.get('transport', '').upper()} - limit {p.get('threshold_ms')} ms on p{p.get('rule', {}).get('percentile', 99)}" + _mb_basis(s))]
     out += _leg_lines(r)
     out += _reasons(s)
     if s.get("error"):

@@ -200,7 +200,7 @@ def test_rule_accepts_p99_9_and_the_preset_is_listed():
     assert p["mirrored"]["trip_every_s"] == 2.0 and p["threshold_ms"] == 200 and p["rule"]["percentile"] == 99.9 and p["duration_s"] == 24 * 3600
     assert "Substation relay" in p["mirrored"]["settings"]["role_names"]["A"] and "DER relay" in p["mirrored"]["settings"]["role_names"]["B"]
     assert p["info"] and all(p["info"].get(k) for k in ("what", "how", "need", "pass_means", "typical"))
-    assert any(x["name"] == "DER trip — Mirrored Bits mode" and x["mirrored"]["codec"] == "sim" for x in P.builtin_presets())    # the old one is unchanged
+    assert any(x["name"] == "DER trip — Mirrored Bits mode" and x["mirrored"]["codec"] == "trip" for x in P.builtin_presets())    # the Mirrored Bits mode preset is the timed one since 1.12.3
 
 
 def test_whole_run_back_to_back_over_the_internal_wire():

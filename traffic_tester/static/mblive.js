@@ -18,7 +18,7 @@ export function mountMB(root, opts = {}) {
   const st = { alive: true, tx: 0, rx: 0, rtx: 0, rrx: 0, data: null, lanes: { ab: [], ba: [] }, tab: opts.tab || 'numbers', raf: 0, timer: 0, hits: [], busy: false, err: '' };
   root.innerHTML = `<div class="mbv" data-testid="mb-live">
     <div class="mbwarn" id="mbWarn" role="alert" hidden></div>
-    <div class="mbhead"><b>Mirrored Bits channel</b><small class="muted" id="mbCodec">SimCodec — emulator-to-emulator only, not SEL wire-compatible</small></div>
+    <div class="mbhead"><b>Mirrored Bits channel</b><small class="muted" id="mbCodec">…</small></div>
     <div class="mbstage" id="mbStage">
       <section class="mbcard" data-end="A" data-testid="mb-card-a"></section>
       <div class="mblanes">
@@ -108,7 +108,7 @@ export function mountMB(root, opts = {}) {
     cardEl.A.classList.toggle('down', a && !a.rok); cardEl.B.classList.toggle('down', !!b && !b.rok);
     const w = q('#mbWarn'); const ws = [...(d.warnings || [])]; if (st.err) ws.push('Lost contact with this Pi: ' + st.err);
     w.hidden = !ws.length; w.innerHTML = ws.map(x => '⚠ ' + esc(x)).join('<br>');
-    q('#mbCodec').textContent = d.local.codec || 'SimCodec — emulator-to-emulator only, not SEL wire-compatible';
+    q('#mbCodec').textContent = d.local.codec || 'Message format: see the test settings';
     // lanes: labels, real rate, one-way delay (RTT/2 from the echo), failed state
     const nameA = a ? (a.label || a.name) : 'A', nameB = b ? (b.label || b.name) : (d.far_label || 'B');
     const near = [a, b].find(x => x && x.rtt && x.rtt.n && x.echo_role === 'near') || null;
@@ -307,7 +307,7 @@ export function mountMB(root, opts = {}) {
     <li><b>Echo bit</b> (default TMB8): one end copies it back, the other flips it each time it returns. The time per flip is the round trip; one way ≈ half. This catches a steady delay that ROK alone cannot see.</li>
     <li><b>Trip frame format</b> (the DER transfer-trip test): each message is a 19-byte frame with a frame number, a send time, the echo of the last frame heard and a CRC. Every frame gives a round trip with no clock sync, lost frames are counted exactly from the numbers, damaged ones by their CRC, and TMB8 is free. One-way needs GPS time (not built in): until then one-way = round trip / 2.</li></ul>
     <p>The question it answers: <b>does Mirrored Bits survive this link?</b> Break the link, add delay, jitter, drops or bit errors with the chips, and watch what a real unit pair would do.</p>
-    <p class="muted"><b>SimCodec</b> is our own message format for emulator-to-emulator tests. It is <b>not</b> the SEL wire format: it will not talk to a real SEL relay. The real layout can be added later as another codec without changing anything else.</p></div>`;
+    <p class="muted">The test settings offer two message formats: <b>Timed (recommended)</b>, the default, and <b>Real Mirrored Bits load</b> (SimCodec). Both are our own formats for emulator-to-emulator tests. It is <b>not</b> the SEL wire format: it will not talk to a real SEL relay. The real layout can be added later as another codec without changing anything else.</p></div>`;
 
   st.timer = setTimeout(poll, 0);
   return () => { st.alive = false; clearTimeout(st.timer); if (st.raf) cancelAnimationFrame(st.raf); };

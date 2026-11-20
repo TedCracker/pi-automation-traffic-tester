@@ -142,7 +142,8 @@ class Mirrored(BaseModel):
     `settings` holds the per-channel settings of THIS end (PROTO, TX_ID/RX_ID, counts, thresholds ... see mbemu.status.Settings); the answering Pi gets
     the mirror image automatically.  `impair` is the in-app impairment injector at the start of the test (it can be changed live)."""
     rate_baud: int = 19200            # message speed over UDP / TCP (over serial the serial baud is used; the serial default for Mirrored Bits is 38400, see _trip_presets): 9600 / 19200 / 38400 like a relay channel
-    codec: str = "sim"                # "sim" (SimCodec, 3 copies of the bits) or "trip" (frame with sequence + timestamp + echo + CRC): both emulator-to-emulator, not SEL wire-compatible
+    codec: str = "trip"               # "trip" (DEFAULT since 1.12.3: numbered, time-stamped frame with echo + CRC) or "sim" (SimCodec: nonstop 4-character load like a relay channel); both emulator-to-emulator, not SEL wire-compatible
+    limit_basis: Literal["one_way_est", "round_trip"] = "one_way_est"   # trip codec only: what the time limit is held against: HALF the measured round trip (an estimate of the one-way time; true one-way needs GPS time) or the full round trip
     settings: Dict[str, Any] = Field(default_factory=dict)
     impair: Dict[str, Any] = Field(default_factory=dict)
     fail_after: int = Field(3, ge=1, le=1000)          # OLD (first Mirrored Bits mode): kept so older saved tests still open; no longer used
@@ -150,6 +151,14 @@ class Mirrored(BaseModel):
     max_down_pct: float = Field(0.1, ge=0, le=100)     # pass limit: share of time ROK may be 0
     peer_api: str = ""                # optional: the other Pi's web address (older tests); the Pi picked as "Send to" is used otherwise
     peer_password: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_limit_basis(cls, d):
+        """A trip-codec test saved before limit_basis existed (the 'Orbit radio 2 s budget' test and tests made from it) was judged on the FULL round trip: keep that."""
+        if isinstance(d, dict) and d.get("codec") == "trip" and "limit_basis" not in d:
+            d = {**d, "limit_basis": "round_trip"}
+        return d
 
     @field_validator("rate_baud")
     @classmethod
@@ -619,11 +628,11 @@ TRIP_INFO = {
 
 
 TRIP_INFO["DER trip \u2014 Mirrored Bits mode"] = {
-    "what": "A pair of SEL-2505-style Mirrored Bits units, one at each end of the link, to see whether Mirrored Bits survives it. Both ends send a full message nonstop and check every message they receive; the test times how long a bit change takes to cross, and whether the channel ever drops. It uses our own message format (SimCodec), so it is emulator-to-emulator only and NOT wire-compatible with SEL relays.",
-    "how": "Each Pi has 8 transmit bits (TMB1-8) and 8 receive bits (RMB1-8). Every send cycle each Pi sends all 8 bits (three copies of each, plus an ID), back to back at the channel speed, whether or not anything changed. Each Pi checks every message (characters, the three copies, the ID, how late it came). A bad, late or missing message puts ROK to 0 at once and the received bits fall back to their defaults; ROK returns after a few good messages. RBAD asserts when ROK stays 0 for a while, CBAD when ROK was 0 too much of a rolling window. One bit (TMB8) is an echo: one end copies it back and the other flips it each time it returns, so every flip is a round trip (one way is about half). Every 2 s the starting Pi also flips TMB1; with both clocks synced the time until it shows at the other Pi is measured one way. The live screen shows both ends, the message stream, and lets you flip bits, break the link or add delay, jitter, drops and bit errors. Runs 10 minutes.",
+    "what": "A pair of Mirrored Bits emulators, one at each end of the link, to see whether the link carries a protection channel the way a relay pair needs it. Both ends send messages nonstop and check every one they receive. Two message formats, picked in the test settings: TIMED (the default, recommended) sends numbered, time-stamped frames, so the round trip of every frame is measured and lost, out-of-order and corrupted frames are told apart; REAL MIRRORED BITS LOAD (SimCodec) sends full 4-character messages back to back like a relay channel and shows whether the channel stays up (ROK / RBAD / CBAD). Both are our own formats, emulator-to-emulator only, NOT wire-compatible with SEL relays.",
+    "how": "TIMED (default): each Pi sends a 19-byte frame carrying eight bits, a frame number, its send time, the number and send time of the last frame it heard from the other end, and a CRC. Each side works out the round trip of every frame from that echo, with no clock sync (about 12,000 round-trip numbers a minute, so the 99th percentile is solid), and counts lost frames exactly from the frame numbers, out-of-order frames and CRC errors separately. The time limit is held against HALF the round trip: an estimate of the one-way time, labelled as such, because a true one-way time needs GPS time on both Pis (not built in). REAL MIRRORED BITS LOAD: each Pi has 8 transmit bits (TMB1-8) and 8 receive bits (RMB1-8) and sends all 8 bits (three copies of each, plus an ID) back to back at the channel speed; a bad, late or missing message puts ROK to 0 at once, RBAD asserts when ROK stays 0 for a while, CBAD when ROK was 0 too much of a rolling window; one bit (TMB8) is an echo that gives a round trip every time it returns (few numbers a minute, but the nonstop load of a real channel). Every 2 s the starting Pi also flips TMB1. The live screen shows both ends and lets you flip bits, break the link or add delay, jitter, drops and bit errors. Runs 10 minutes.",
     "need": "The same serial setup as the DER trip test (USB-serial adapter or the Pi's serial pins on each Pi, null-modem cable or the radios' serial ports), with the same speed on both. The Pi you send to joins in for the length of the test and is set up as the mirror image (PROTO B, IDs swapped). Also works over UDP or TCP for IP-tunnelled radios. No second Pi? The Run screen has an internal self-test.",
-    "pass_means": "Pass = 99 out of every 100 bit changes crossed in 60 ms or less, no more than 0.1 % of them were lost, ROK was 0 for no more than 0.1 % of the time, and RBAD never asserted. The result also shows availability, the longest outage, the rejected messages by reason, the echo round trip and an inter-arrival histogram.",
-    "typical": "Proving that a serial-over-radio link (5G router, FirstNet, private LTE) carries Mirrored Bits the way a relay pair needs it: continuous traffic, a bit change inside 60 ms, and no false channel failures.",
+    "pass_means": "Pass = 99 out of every 100 frames crossed in 60 ms or less (one way, estimated as half the round trip), no more than 0.1 % of frames were lost, ROK was 0 for no more than 0.1 % of the time, and RBAD never asserted. The result shows the round trip (median, 99th, 99.9th, slowest), frames lost, out of order and CRC errors, availability and the longest outage, and says which message format was used. With the REAL MIRRORED BITS LOAD format the 60 ms is held against the bit transfer time instead.",
+    "typical": "Proving that a serial-over-radio link (5G router, FirstNet, private LTE) carries a protection channel: continuous traffic, a one-way time inside 60 ms, and no false channel failures. Pick Real Mirrored Bits load when what matters is how the channel's ROK / RBAD / CBAD behave under the nonstop load of a real relay channel.",
 }
 
 
@@ -646,15 +655,16 @@ def _trip_presets() -> List[dict]:
                 threshold_ms=60, idle_gaps_s=idle, idle_repeats=3, rule={"percentile": 99}),
         _preset("DER trip — Mirrored Bits mode",
                 "A pair of SEL-2505-style Mirrored Bits emulators, one at each end: full messages nonstop, ROK / RBAD / CBAD, and the time for a bit change to cross. "
-                "Pass = 99 % of bit changes within 60 ms, ROK down no more than 0.1 % of the time, no RBAD. SimCodec (our own format): emulator-to-emulator only, not compatible with SEL relays.",
+                "Default format: Timed (numbered, time-stamped frames: round trip of every frame, lost / out-of-order / corrupted told apart). Pass = 99 % of frames within 60 ms one way (estimated as half the round trip), ROK down no more than 0.1 % of the time, no RBAD. "
+                "Pick 'Real Mirrored Bits load' in the settings for the nonstop SimCodec load of a relay channel. Our own formats: emulator-to-emulator only, not compatible with SEL relays.",
                 transport="serial", serial={"baud": 38400}, mode="mirrored", frame="compact", interval_ms=50, duration_s=600, length_choices=[60, 600, 3600, 86400],
-                threshold_ms=60, rule={"percentile": 99}),
+                threshold_ms=60, rule={"percentile": 99}, mirrored={"codec": "trip", "limit_basis": "one_way_est"}),
         _preset("DER transfer trip \u2014 Orbit radio (2 s budget)",
                 "Substation relay (SEL-351/751/651R class) \u2192 DER relay (SEL-700GT class), nonstop frames both ways over the radio's serial port at 19200 baud (a 19-byte frame every 9.9 ms): "
                 "round trip of every frame from the echo, lost frames, CRC errors, outages. Pass = 99.9 % of round trips within 200 ms. Run for days to catch the worst case. Our own frame format: not SEL wire-compatible.",
                 transport="serial", serial={"baud": 19200}, mode="mirrored", frame="compact", interval_ms=10, duration_s=24 * 3600, length_choices=[60, 600, 3600, 86400],
                 threshold_ms=200, timeout_ms=1000, rule={"percentile": 99.9, "max_loss_pct": 0.1},
-                mirrored={"codec": "trip", "trip_every_s": 2.0, "max_down_pct": 0.1,
+                mirrored={"codec": "trip", "limit_basis": "round_trip", "trip_every_s": 2.0, "max_down_pct": 0.1,
                           "settings": {"rmb_pu": [2] * 8, "rmb_do": [2] * 8, "rtt_max_ms": 200.0,
                                        "role_names": {"A": "Substation relay (SEL-351/751/651R class)", "B": "DER relay (SEL-700GT class)"}}}),
         _preset("DER trip test (IP)",

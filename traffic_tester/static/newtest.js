@@ -4,7 +4,7 @@
 // Nothing here assumes two Pis: "To" is a tick list. A saved test is an ordinary profile (profiles API), as before.
 import { $, $$, esc, api, toast, tip, dur, bindOnce, sheetBox, confirmBox, myName } from './ui.js';
 import { S, resetLive } from './state.js';
-import { loadCustomLimits, newDraft, editDraft, isDirty, derive, validate, toProfile, field, select, check, errEl, applyField, customData } from './custom.js';
+import { loadCustomLimits, newDraft, editDraft, isDirty, derive, validate, toProfile, field, select, check, errEl, applyField, customData, codecChoice } from './custom.js';
 import { EP, loadPeers, peerOf, addPiSheet, rememberEndpoints } from './endpoints.js';
 import { mbFieldsHtml } from './mbsettings.js';
 import { radioFormHtml, loadUsage, usageBlock, usageKey, repeatSheet } from './radioui.js';
@@ -127,7 +127,7 @@ function endsLine(p, m) {
 function trafficLine(p) {
   if (N.extras && N.extras.line) { const s = N.extras.line(N.c); if (s) return s; }
   const rule = p.rule.percentile === 100 ? 'slowest' : 'p' + p.rule.percentile;
-  if (p.mode === 'mirrored') return `nonstop at ${p.transport === 'serial' ? p.serial.baud : p.mirrored.rate_baud} baud · ${dur(p.duration_s)} · pass if ${rule} ≤ ${p.threshold_ms} ms`;
+  if (p.mode === 'mirrored') return `${p.mirrored.codec === 'sim' ? 'real Mirrored Bits load' : 'timed'} · nonstop at ${p.transport === 'serial' ? p.serial.baud : p.mirrored.rate_baud} baud · ${dur(p.duration_s)} · pass if ${rule} ≤ ${p.threshold_ms} ms${p.mirrored.codec === 'sim' ? '' : ' one way (est.)'}`;
   return `1 message / ${p.interval_ms} ms · ${dur(p.duration_s)} · pass if ${rule} ≤ ${p.threshold_ms} ms`;
 }
 export function sentence(p, m) {
@@ -218,7 +218,7 @@ function trafficRow() {
   const chips = lc.length ? `<div class="seg ntlen" role="radiogroup" aria-label="Test length" data-testid="nt-len-choices">${lc.map(x => `<button type="button" role="radio" aria-checked="${Math.abs(curS - x) < 0.5}" class="${Math.abs(curS - x) < 0.5 ? 'on' : ''}" data-nt="len" data-v="${x}" data-testid="nt-len-${x}">${lenName(x)}</button>`).join('')}</div>` : '';
   const len = `<div class="ntlenwrap">${chips}<label class="f"><span>Test length</span><div class="fieldrow"><input data-k="ui.len" data-t="num" type="number" step="any" inputmode="decimal" value="${Number.isFinite(c.ui.len) ? c.ui.len : ''}"><select data-k="ui.lenUnit" data-t="str">${lenUnits.map(u => `<option value="${u}" ${c.ui.lenUnit === u ? 'selected' : ''}>${u}</option>`).join('')}</select></div>${errEl('ui.len')}</label></div>`;
   const rate = `<label class="f"><span>Send a message every ${tip('interval')}</span><div class="fieldrow"><input data-k="ui.rate" data-t="num" type="number" step="any" inputmode="decimal" value="${Number.isFinite(c.ui.rate) ? c.ui.rate : ''}"><select data-k="ui.rateUnit" data-t="str"><option value="ms" ${c.ui.rateUnit === 'ms' ? 'selected' : ''}>ms</option><option value="hz" ${c.ui.rateUnit === 'hz' ? 'selected' : ''}>messages per second</option></select></div>${errEl('ui.rate')}</label>`;
-  const pass = `${field(c, 'threshold_ms', mb ? 'Pass: bit transfer within (ms)' : 'Pass: delay within (ms)', { t: 'threshold' })}
+  const pass = `${field(c, 'threshold_ms', mb ? (p.mirrored.codec === 'sim' ? 'Pass: bit transfer within (ms)' : 'Pass: one way within (ms, = half the round trip)') : 'Pass: delay within (ms)', { t: 'threshold' })}
     ${select(c, 'rule.percentile', 'Judged on', [[50, 'Typical message (p50)'], [95, 'p95'], [99, 'p99 (recommended)'], [99.9, 'p99.9 (long runs)'], [100, 'Slowest message (max)']], { t: 'rule', type: 'num' })}
     ${field(c, 'rule.max_loss_pct', 'Loss allowed (%)', { t: 'loss' })}`;
   const imps = [['', 'None (use the real link)'], ...Object.keys(netem).map(k => [k, `${k}: ${netem[k]}`])];
@@ -229,12 +229,12 @@ function trafficRow() {
         : `${field(c, 'goose.group_a', 'Group, first direction', { type: 'str' })}${field(c, 'goose.group_b', 'Group, other direction', { type: 'str' })}${field(c, 'goose.udp_port', 'UDP port')}${field(c, 'goose.ttl', 'TTL')}${field(c, 'goose.dscp', 'Priority (DSCP 0-63)', { t: 'dscp' })}${field(c, 'goose.unicast_peer', 'Unicast fallback address (optional)', { type: 'str' })}`;
   const hard = `${select(c, 'impairment', 'Simulate a bad link', imps, { t: 'netem', type: 'nul', disabled: !nt.ok, note: nt.ok ? '' : 'Not available here: ' + (nt.reason || 'not allowed on this install.') })}
     ${mb ? '' : `<label class="f"><span>Background load (Mb/s) ${tip('load')}</span><input data-k="load_mbps" data-t="num" type="number" step="any" inputmode="decimal" value="${Number.isFinite(p.load_mbps) ? p.load_mbps : ''}" ${IPT(t) ? '' : 'disabled'}>${IPT(t) ? '' : '<small class="why">Needs a UDP or TCP test.</small>'}${errEl('load_mbps')}</label>`}`;
-  const more = mb ? `${field(c, 'mirrored.trip_every_s', 'Flip the trip bit every (s)')}${select(c, 'mirrored.codec', 'Message format', [['sim', 'SimCodec (4 characters, each bit 3 times)'], ['trip', 'Trip frame (sequence + timestamp + echo + CRC)']], { t: 'Both are our own formats, not SEL wire-compatible. The trip frame measures the round trip of every frame with no clock sync, counts lost frames exactly and frees TMB8.' })}${t === 'serial' ? '' : field(c, 'mirrored.rate_baud', 'Message pace (same as baud)', { hint: '9600, 19200 or 38400, like a relay channel.' })}${field(c, 'mirrored.max_down_pct', 'ROK may be 0 (% of the time)')}${field(c, 'timeout_ms', 'Give up on a bit after (ms)', { t: 'timeout' })}${link}${hard}`
+  const more = mb ? `${field(c, 'mirrored.trip_every_s', 'Flip the trip bit every (s)')}${t === 'serial' ? '' : field(c, 'mirrored.rate_baud', 'Message pace (same as baud)', { hint: '9600, 19200 or 38400, like a relay channel.' })}${field(c, 'mirrored.max_down_pct', 'ROK may be 0 (% of the time)')}${field(c, 'timeout_ms', 'Give up on a bit after (ms)', { t: 'timeout' })}${link}${hard}`
     : `${field(c, 'timeout_ms', 'Give up after (ms)', { t: 'timeout' })}${select(c, 'frame', 'Message size', [['compact', 'Compact, 7 bytes'], ['extended', 'Extended, 40 bytes (timestamps)']], { disabled: fixedFrame, note: fixedFrame ? 'Fixed: this test needs the timestamps.' : '' })}
       ${field(c, 'ui.gaps', 'Quiet gaps to test (s, comma-separated)', { type: 'str', t: 'idle', hint: 'Empty = none. Example: 5, 30, 120.' })}${field(c, 'idle_repeats', 'Repeats per gap')}${select(c, 'idle_mode', 'Quiet checks happen', [['after', 'After the main test'], ['interleaved', 'Mixed in (soak)']])}
       ${p.direction === 'round_trip' ? check(c, 'one_way', 'Also time each direction (clocks must agree)', 'oneway') : ''}${link}${hard}`;
   const ex = N.extras && N.extras.pattern ? N.extras.pattern(c) : '';
-  const body = ex && ex.replaces ? ex.html : `${ex ? ex.html : ''}<div class="grid g3">${mb ? '' : rate}${len}${pass}</div>
+  const body = ex && ex.replaces ? ex.html : `${ex ? ex.html : ''}<div class="grid g3">${mb ? '' : rate}${len}${pass}</div>${mb ? codecChoice(c) : ''}
     <details class="ntmore" id="ntMore" data-testid="nt-more"><summary>More options</summary><div class="grid g3" style="margin-top:12px">${more}</div>${mb ? mbFieldsHtml(p, (path, type) => ` data-k="${path}" data-t="${type}"`, t === 'serial') : ''}</details>${radioFormHtml(c, field, select, errEl)}`;
   return rowHtml('traffic', 4, mb ? 'Pass rule' : 'Traffic', trafficLine(p), true, body);
 }
@@ -441,7 +441,7 @@ function onChange(ev) {
   if (el.dataset.ntIn === 'host') { onHost(el, 350, false); return setTimeout(() => { if (N.c) draw(); }, 250); }      // redraw after the tap that took the focus away has landed
   if (!el.dataset.k) return;
   applyField(N.c, el);
-  changed(350, ['ui.rateUnit', 'ui.lenUnit', 'one_way', 'impairment', 'frame'].includes(el.dataset.k) || el.tagName === 'SELECT' || el.type === 'checkbox');
+  changed(350, ['ui.rateUnit', 'ui.lenUnit', 'one_way', 'impairment', 'frame', 'mirrored.codec'].includes(el.dataset.k) || el.tagName === 'SELECT' || el.type === 'checkbox');
 }
 function onHost(el, delay, redraw) {
   const p = N.c.p, m = model(p), v = el.value.trim();

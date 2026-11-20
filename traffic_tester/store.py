@@ -81,12 +81,26 @@ class Store:
         for c, ddl in (("preset_key", "TEXT"), ("position", "REAL"), ("hidden", "INTEGER NOT NULL DEFAULT 0"), ("override_json", "TEXT")):
             if c not in cols:
                 self.db.execute(f"ALTER TABLE profiles ADD COLUMN {c} {ddl}")
+        self._pin_old_mirrored_codec()
         rcols = {r["name"] for r in self.db.execute("PRAGMA table_info(runs)")}
         for c, ddl in (("group_id", "INTEGER"), ("leg", "TEXT")):        # tests with two directions at once: one run per direction, tied together by group_id
             if c not in rcols:
                 self.db.execute(f"ALTER TABLE runs ADD COLUMN {c} {ddl}")
         if "job" not in rcols:                                           # job info of a run: {"site", "link", "by", "note"} as JSON (SPEC 7.4)
             self.db.execute("ALTER TABLE runs ADD COLUMN job TEXT")
+
+    def _pin_old_mirrored_codec(self):
+        """Release 1.12.3 made the timed (trip-frame) codec the default for NEW Mirrored Bits tests.  A saved test of an older version that never stored a
+        codec was a SimCodec test: write that down so the new default never silently changes it."""
+        for r in self.db.execute("SELECT id, json FROM profiles WHERE builtin=0").fetchall():
+            try:
+                d = json.loads(r["json"])
+            except ValueError:
+                continue
+            m = d.get("mirrored") if isinstance(d, dict) else None
+            if isinstance(m, dict) and "codec" not in m:
+                d["mirrored"] = {**m, "codec": "sim"}
+                self.db.execute("UPDATE profiles SET json=? WHERE id=?", (json.dumps(d), r["id"]))
 
     def _next_position(self) -> float:
         r = self.db.execute("SELECT MAX(position) AS m FROM profiles").fetchone()

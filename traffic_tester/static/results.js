@@ -224,10 +224,14 @@ const mbSection = (s, id) => {
 };
 // Frame codec (Trip frame): the round trip of every frame is the headline; lost frames are exact (sequence numbers), CRC errors are damaged frames.
 const frameTiles = (m, t, r) => {
-  const f = m.frames || {}, thr = t.threshold_ms || 1e9, limit = (m.settings || {}).rtt_max_ms;
-  return `${card('Round trip (every frame)', r.p999 == null ? '–' : ms(r.p999), `p99.9 · p50 ${ms(r.p50)} · p99 ${ms(r.p99)} · max ${ms(r.max)} · jitter ${ms(r.jitter_ms)}`, (r.p999 > thr || r.max > thr) ? (r.p999 > thr ? 'bad' : 'warn') : 'good', 'Measured from the echo in the frames, no clock sync. One way is about half (an estimate: true one-way needs GPS time). Limit ' + ms(thr) + ' at the chosen percentile.')}
+  const f = m.frames || {}, thr = m.limit_rtt_ms || t.threshold_ms || 1e9, limit = (m.settings || {}).rtt_max_ms, half = m.limit_basis === 'one_way_est';
+  const h2 = v => v == null ? '–' : ms(v / 2);
+  const lim = half ? `Limit ${ms(thr / 2)} one way (= ${ms(thr)} round trip)` : 'Limit ' + ms(thr) + ' round trip';
+  return `${card('Round trip (every frame)', r.p999 == null ? '–' : ms(r.p999), `p99.9 · p50 ${ms(r.p50)} · p99 ${ms(r.p99)} · max ${ms(r.max)} · jitter ${ms(r.jitter_ms)}`, (r.p999 > thr || r.max > thr) ? (r.p999 > thr ? 'bad' : 'warn') : 'good', 'Measured from the echo in the frames, no clock sync. ' + lim + ' at the chosen percentile.')}
+    ${half ? card('One way (estimate = round trip ÷ 2)', h2(r.p99), `p99 · p50 ${h2(r.p50)} · p99.9 ${h2(r.p999)} · max ${h2(r.max)}`, r.p99 > thr ? 'bad' : 'good', 'Half the measured round trip: an ESTIMATE of the one-way time. True one-way needs GPS time on both Pis (not built in). ' + lim + '.') : ''}
     ${card('Frames lost', num(f.lost), `${f.lost_pct}% of ${num((f.good || 0) + (f.lost || 0))} · ${num(f.lost_events)} gap(s) · longest ${num(f.longest_gap)}`, f.lost ? 'bad' : 'good', 'Counted exactly from the frame numbers; includes frames that arrived damaged.')}
-    ${card('CRC errors', num(f.crc_errors), `${num(f.duplicates)} repeated · ${num(f.out_of_order)} out of order`, f.crc_errors ? 'warn' : 'good')}`;
+    ${card('Out of order', num(f.out_of_order), `${num(f.duplicates)} repeated`, f.out_of_order ? 'warn' : 'good', 'Frames that arrived after a later one (the cell link delivered them in a different order).')}
+    ${card('CRC errors', num(f.crc_errors), 'damaged frames', f.crc_errors ? 'warn' : 'good')}`;
 };
 const mbEmu = (s, m, id) => {
   const t = m.transfer || {}, r = m.rtt || {}, h = m.histogram || { counts: [], labels: [] }, rej = m.rejects || {}, far = m.far, imp = m.impair || {};
@@ -235,7 +239,7 @@ const mbEmu = (s, m, id) => {
   const mx = Math.max(1, ...h.counts), outs = (m.outages || []).slice(0, 20);
   const rejTot = REJ.reduce((a, k) => a + (rej[k] || 0), 0);
   return `<div class="card" data-testid="mb-result"><h2>Mirrored Bits channel <span class="tag preset" style="text-transform:none">${num(m.baud)} baud · PROTO ${esc(m.proto)}</span></h2>
-    <p class="muted" style="margin:0 0 8px">${esc(m.codec)}. ${num(m.tx_msgs)} messages sent (${num(m.tx_rate)} per second, one every ${m.wire_period_ms} ms), ${num(m.rx_good)} good ones received here, ${num(rejTot)} rejected.</p>
+    <p class="muted" style="margin:0 0 8px" data-testid="mb-codec">Message format: <b>${m.frame_mode ? 'Timed' : 'Real Mirrored Bits load'}</b> (${esc(m.codec)}). ${num(m.tx_msgs)} messages sent (${num(m.tx_rate)} per second, one every ${m.wire_period_ms} ms), ${num(m.rx_good)} good ones received here, ${num(rejTot)} rejected.</p>
     <div class="tiles">${m.frame_mode ? frameTiles(m, t, r) : ''}${m.frame_mode ? '' : card('Bit transfer time', t.p99 == null ? '–' : ms(t.p99), `p99 · p50 ${ms(t.p50)} · max ${ms(t.max)}`, t.p99 > (t.threshold_ms || 1e9) ? 'bad' : 'good', 'How long a bit change takes to cross the link. ' + (t.basis === 'one_way' ? 'Measured one way (both clocks synced).' : 'Estimated as half the round trip of the echo bit.'))}
       ${m.frame_mode ? '' : card('Round trip (echo bit)', (m.echo || {}).unreliable ? 'not measured' : ms(r.p50), `p99 ${ms(r.p99)} · max ${ms(r.max)} · jitter ${ms(r.jitter_ms)}`, r.alarm_events ? 'bad' : 'good')}
       ${card('ROK availability', pct(m.availability_pct), `ROK was 0 for ${pct(m.unavail_pct)} of the time`, m.unavail_pct > 0.1 ? 'warn' : 'good')}

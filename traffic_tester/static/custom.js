@@ -195,7 +195,8 @@ function summaryMb(p) {
   const m = p.mirrored, baud = p.transport === 'serial' ? p.serial.baud : m.rate_baud;
   if (![baud, m.trip_every_s, p.duration_s, p.threshold_ms].every(Number.isFinite) || baud <= 0) return 'Fill in the highlighted fields to see what this test will do.';
   const per = 4 * 10 / baud * 1000, who = p.rule.percentile === 100 ? 'the slowest bit change' : `${p.rule.percentile} % of bit changes`;
-  return `Two Mirrored Bits emulators, one at each end, send a full 4-character message back to back at ${fmt(baud)} baud (one every ${per.toFixed(2)} ms, ~${fmt(Math.round(1000 / per))} messages/s each way) and check every message they receive: ROK drops at once on any bad, late or missing message. An echo bit gives the round trip; every ${m.trip_every_s} s a test bit is flipped and timed to the other end, for ${dur(p.duration_s)}. Passes if ${who} cross within ${p.threshold_ms} ms, ROK is 0 at most ${m.max_down_pct} % of the time and RBAD never asserts. SimCodec: not SEL wire-compatible.`;
+  if (m.codec !== 'sim') return `Two Mirrored Bits emulators, one at each end, send numbered, time-stamped 19-byte frames back to back at ${fmt(baud)} baud and check every frame they receive. Each frame carries the echo of the last one heard, so the round trip of every frame is measured and lost, out-of-order and corrupted frames are counted separately. Every ${m.trip_every_s} s a test bit is flipped, for ${dur(p.duration_s)}. Passes if ${p.rule.percentile === 100 ? 'the slowest frame' : `${p.rule.percentile} % of frames`} cross within ${p.threshold_ms} ms (one way, estimated as half the round trip), ROK is 0 at most ${m.max_down_pct} % of the time and RBAD never asserts. Timed format: not SEL wire-compatible.`;
+  return `Two Mirrored Bits emulators, one at each end, send a full 4-character message back to back at ${fmt(baud)} baud (one every ${per.toFixed(2)} ms, ~${fmt(Math.round(1000 / per))} messages/s each way) and check every message they receive: ROK drops at once on any bad, late or missing message. An echo bit gives the round trip; every ${m.trip_every_s} s a test bit is flipped and timed to the other end, for ${dur(p.duration_s)}. Passes if ${who} cross within ${p.threshold_ms} ms, ROK is 0 at most ${m.max_down_pct} % of the time and RBAD never asserts. Real Mirrored Bits load (SimCodec): not SEL wire-compatible.`;
 }
 
 // ---------------------------------------------------------------- form markup
@@ -216,14 +217,24 @@ function opt(name, value, checked, title, text, off = '') {
     <span><b>${esc(title)}</b><small>${esc(off ? 'Not available here: ' + off : text)}</small></span></label>`;
 }
 
+// The one choice that decides what a Mirrored Bits test shows (default Timed, since 1.12.3).  Used by this form and by the New test page.
+export function codecChoice(c) {
+  const cur = c.p.mirrored.codec === 'sim' ? 'sim' : 'trip';
+  return `<div data-testid="setup-message-format" style="grid-column:1/-1;margin:12px 0 4px"><h3 style="margin:0 0 8px">Message format</h3>
+    <div class="opts" role="radiogroup" aria-label="Message format" data-testid="mb-codec-choice">
+      ${opt('mirrored.codec', 'trip', cur === 'trip', 'Timed (recommended)', 'Numbered, time-stamped messages: best latency numbers; tells lost, out-of-order and corrupted apart.')}
+      ${opt('mirrored.codec', 'sim', cur === 'sim', 'Real Mirrored Bits load', 'Nonstop like a relay channel: shows whether the channel stays up (ROK / RBAD / CBAD).')}</div>
+    <small class="muted">Both are our own formats for Pi-to-Pi tests, not SEL wire-compatible. Timed judges the time limit on half the round trip (an estimate of the one-way time: a true one-way time needs GPS time).</small></div>`;
+}
+
 function mirroredCard(c) {
   const p = c.p, m = p.mirrored;
   return `<div class="card"><h2>4 · How long, and which signal is timed?</h2><div class="grid g3">
       <label class="f">${lbl('Test length')}<div class="fieldrow"><input data-k="ui.len" data-t="num" type="number" step="any" inputmode="decimal" value="${Number.isFinite(c.ui.len) ? c.ui.len : ''}">
         <select data-k="ui.lenUnit" data-t="str">${['seconds', 'minutes', 'hours'].map(u => `<option value="${u}" ${c.ui.lenUnit === u ? 'selected' : ''}>${u}</option>`).join('')}</select></div>${errEl('ui.len')}</label>
       ${field(c, 'mirrored.trip_every_s', 'Flip the test bit every (seconds)', { t: 'The starting Pi flips the test bit (TMB1) this often; the time until it shows at the other Pi is the bit transfer time.' })}
-      ${select(c, 'mirrored.codec', 'Message format', [['sim', 'SimCodec: 4 characters, every bit sent 3 times'], ['trip', 'Trip frame: sequence + timestamp + echo + CRC (19 characters)']], { t: 'Both are our own formats for Pi-to-Pi tests, not SEL wire-compatible. The trip frame gives the round trip of every frame (no clock sync), exact lost frames and CRC errors; it frees TMB8 because the echo travels inside the frame.' })}
       ${p.transport === 'serial' ? '' : field(c, 'mirrored.rate_baud', 'Message speed (baud)', { hint: 'Over IP the same message pace as a serial channel of this speed: 9600, 19200 or 38400.' })}</div>
+    ${codecChoice(c)}
     ${mbFieldsHtml(p, (path, type) => ` data-k="${path}" data-t="${type}"`, p.transport === 'serial')}
     ${p.transport === 'serial' ? '<p class="muted" style="margin:10px 0 0">The serial speed above sets the message pace: at 38400 baud (the default here) one 4-character message takes 1.04 ms, at 19200 baud 2.08 ms; the line is never idle.</p>' : ''}</div>`;
 }

@@ -58,3 +58,9 @@ Mode/PROTO (A/B pairing; the two ends must be opposite), BAUD, TX_ID, RX_ID, RBA
 4. Corrupt one copy of one bit → message rejected.
 5. 10% random drop → ROK chatter; CBAD asserts per its threshold.
 6. Steady +50 ms latency with zero jitter → ROK stays up AND the echo RTT alarm fires.
+
+## Message formats and the default (1.12.3)
+A Mirrored Bits test has one choice, `mirrored.codec`, shown in the test settings as two options:
+- **Timed (recommended)** = `"trip"`, the DEFAULT for new tests and for the built-in "DER trip — Mirrored Bits mode". Numbered, time-stamped 19-byte frames with the echo of the last frame heard: the round trip of every frame (about 12,000 numbers a minute), lost / out-of-order / corrupted frames counted separately. The time limit is a ONE-WAY limit held against HALF the round trip (`mirrored.limit_basis = "one_way_est"`, shown as an estimate: a true one-way time needs GPS time, not built in). A trip test saved before 1.12.3 (the Orbit "2 s budget" test) keeps `limit_basis = "round_trip"`.
+- **Real Mirrored Bits load** = `"sim"` (SimCodec). Full 4-character messages nonstop like a relay channel: shows whether the channel stays up (ROK / RBAD / CBAD); few round-trip numbers (about 200 a minute from the echo bit).
+Saved tests keep their format (a test saved without one is pinned to `"sim"` at start-up); an edited built-in test adopts the new default only for fields the user never changed. The result, the Results page and the PDF report say which format was used.
